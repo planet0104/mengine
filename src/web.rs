@@ -18,7 +18,7 @@ use stdweb::web::event::{
     KeyUpEvent,
 };
 use stdweb::web::html_element::CanvasElement;
-use super::{Event, Image, ImageLoader, Graphics, State};
+use super::{Settings, Rect, Event, Image, ImageLoader, Graphics, State};
 use std::cell::RefCell;
 use std::any::Any;
 
@@ -54,21 +54,21 @@ impl Graphics for HTMLGraphics{
         self.context.fill_rect(x, y, width, height);
     }
 
-    fn draw_image(&mut self, image:&Image, src:Option<[f64; 4]>, dest:Option<[f64; 4]>) -> Result<(), String>{
+    fn draw_image(&mut self, image:&Image, src:Option<&Rect<f64>>, dest:Option<&Rect<f64>>) -> Result<(), String>{
         match image.as_any().downcast_ref::<WebImage>(){
             Some(image) => {
                 match if src.is_none() && dest.is_none(){
                     self.context.draw_image(image.image.clone(), 0., 0.)
                 }else if src.is_none() && dest.is_some(){
                     let dest = dest.unwrap();
-                    self.context.draw_image_d(image.image.clone(), dest[0], dest[1], dest[2], dest[3])
+                    self.context.draw_image_d(image.image.clone(), dest.pos.x, dest.pos.y, dest.size.width, dest.size.height)
                 }else if src.is_some() && dest.is_none(){
                     let src = src.unwrap();
-                    self.context.draw_image_s(image.image.clone(), src[0], src[1], src[2], src[3], 0., 0., image.image.width().into(), image.image.height().into())
+                    self.context.draw_image_s(image.image.clone(), src.pos.x, src.pos.y, src.size.width, src.size.height, 0., 0., image.image.width().into(), image.image.height().into())
                 }else{
                     let src = src.unwrap();
                     let dest = dest.unwrap();
-                    self.context.draw_image_s(image.image.clone(), src[0], src[1], src[2], src[3], dest[0], dest[1], dest[2], dest[3])
+                    self.context.draw_image_s(image.image.clone(), src.pos.x, src.pos.y, src.size.width, src.size.height, dest.pos.x, dest.pos.y, dest.size.width, dest.size.height)
                 }{
                     Err(err) => Err(format!("{:?}", err)),
                     Ok(_) => Ok(())
@@ -115,12 +115,32 @@ fn request_animation_frame(_timestamp:f64){
     window().request_animation_frame(request_animation_frame);
 }
 
-pub fn run<S:State>(title: &str, width:f64, height:f64, update_rate:Option<u64>, mut state:S, font:Option<&str>){
+pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut state:S){
     document().body().expect("no html body!!").append_html("<canvas id=\"canvas\"></canvas>").expect("append canvas fail!!");
     state.on_load(&mut WebImageLoader{});
-    UPDATE_RATE.with(|rate|{ *rate.borrow_mut() = update_rate.unwrap_or(60); });
+    UPDATE_RATE.with(|rate|{ *rate.borrow_mut() = settings.ups; });
 
-    if let Some(font) = font{
+    if let Some(icon) = settings.icon_path{
+        let mut icon_link = String::from("<link rel=\"icon\" type=\"image/_type_\" href=\"_path_\" />");
+        icon_link = icon_link.replace("_path_", icon);
+        let icon_path = Path::new(icon);
+        if let Some(ext) = icon_path.extension(){    
+            if ext == "ico"{
+                icon_link = icon_link.replace("_type_", "x-icon");
+            }else{
+                icon_link = icon_link.replace("_type_", ext.to_str().unwrap_or("*"));
+            }
+        }else{
+            icon_link = icon_link.replace("_type_", "*");
+        }
+        if let Some(head) = document().head(){
+            let _ = head.append_html(&icon_link);
+            icon_link = icon_link.replace("rel=\"icon\"", "rel=\"shortcut icon\"");
+            let _ = head.append_html(&icon_link);
+        }
+    }
+
+    if let Some(font) = settings.font_file{
         match ||->Result<(), Box<std::error::Error>>{
             let path = Path::new(font);
             let stem = path.file_stem().unwrap_or(OsStr::new("MyFont")).to_str().unwrap_or("MyFont");

@@ -1,15 +1,19 @@
 [package]
 name = "mengine"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["planet0104 <planet0104@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
+
 [target.'cfg(not(target_arch = "asmjs"))'.dependencies]
 piston_window = "0.89.0"
 piston-gfx_texture = "0.35.0"
 gfx_device_gl = "0.15.5"
+winit = { version = "0.18.1", features = [ "icon_loading"] }
 
 [target.'cfg(target_arch = "asmjs")'.dependencies]
 stdweb = "0.4.16"
