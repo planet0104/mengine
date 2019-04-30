@@ -43,7 +43,7 @@ dependencies = [
 name = "asteroids"
 version = "1.0.0"
 dependencies = [
- "mengine 1.0.0",
+ "mengine 0.5.0",
 ]
 
 [[package]]
@@ -517,7 +517,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "mengine"
-version = "1.0.0"
+version = "0.5.0"
 dependencies = [
  "gfx_device_gl 0.15.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston-gfx_texture 0.35.0 (registry+https://github.com/rust-lang/crates.io-index)",
