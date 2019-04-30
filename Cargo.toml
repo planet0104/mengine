@@ -1,0 +1,15 @@
+[package]
+name = "mengine"
+version = "0.5.0"
+authors = ["planet0104 <planet0104@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+
+[target.'cfg(not(target_arch = "asmjs"))'.dependencies]
+piston_window = "0.89.0"
+piston-gfx_texture = "0.35.0"
+gfx_device_gl = "0.15.5"
+
+[target.'cfg(target_arch = "asmjs")'.dependencies]
+stdweb = "0.4.16"
