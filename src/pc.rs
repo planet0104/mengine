@@ -1,5 +1,5 @@
 use piston_window::{PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
-use super::{Settings, Rect, Event, ImageLoader, Image, Graphics, Timer, State};
+use super::{AudioType, Settings, Rect, Event, ImageLoader, Image, Graphics, Timer, State};
 use std::path::Path;
 use std::any::Any;
 use std::cell::RefCell;
@@ -74,6 +74,28 @@ impl <'a, 'b> Graphics for PistonGraphics<'a, 'b>{
             Ok(())
         }
     }
+}
+
+/// 启动线程播放声音
+pub fn play_sound(data:&[u8], _t:AudioType){
+    use std::thread;
+    let data = data.to_vec();
+    thread::spawn(move || {
+        use std::io::Cursor;
+        let device = rodio::default_output_device();
+        if device.is_none(){
+            eprintln!("no default output device.");
+            return;
+        }
+        let sink = rodio::Sink::new(&device.unwrap());
+        let decoder = rodio::Decoder::new(Cursor::new(data.to_vec()));
+        if decoder.is_err(){
+            eprintln!("{:?}", decoder.err());
+            return;
+        }
+        sink.append(decoder.unwrap());
+        sink.sleep_until_end();
+    });
 }
 
 pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings, mut state:S){

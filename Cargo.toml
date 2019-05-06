@@ -9,11 +9,12 @@ edition = "2018"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser"] }
 
-[target.'cfg(not(target_arch = "asmjs"))'.dependencies]
+[target.'cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))'.dependencies]
 piston_window = "0.89.0"
 piston-gfx_texture = "0.35.0"
 gfx_device_gl = "0.15.5"
 winit = { version = "0.18.1", features = [ "icon_loading"] }
+rodio = "0.8.1"
 
-[target.'cfg(target_arch = "asmjs")'.dependencies]
-stdweb = "0.4.16"
+[target.'cfg(any(target_arch = "asmjs", target_arch = "wasm32"))'.dependencies]
+stdweb = "0.4.17"

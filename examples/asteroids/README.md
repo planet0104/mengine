@@ -6,4 +6,4 @@ run on pc:
 
 run in browser:
 
-> cargo web start --target asmjs-unknown-emscripten
+> cargo web start

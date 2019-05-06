@@ -13,12 +13,13 @@ use stdweb::web::{
 
 use stdweb::web::event::{
     MouseMoveEvent,
+    MouseDownEvent,
     KeyPressEvent,
     KeyDownEvent,
     KeyUpEvent,
 };
 use stdweb::web::html_element::CanvasElement;
-use super::{Settings, Rect, Event, Image, ImageLoader, Graphics, State};
+use super::{AudioType, Settings, Rect, Event, Image, ImageLoader, Graphics, State};
 use std::cell::RefCell;
 use std::any::Any;
 
@@ -115,9 +116,33 @@ fn request_animation_frame(_timestamp:f64){
     window().request_animation_frame(request_animation_frame);
 }
 
+pub fn play_sound(data:&[u8], _t:AudioType){
+    js!{
+        let bytes = new Uint8Array(@{data}).buffer;
+        var audioCtx = window.audioContext;
+        audioCtx.decodeAudioData(bytes, function(buffer){
+            try{
+                var source = audioCtx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioCtx.destination);
+                source.start(0);
+            }catch(e){
+                console.log(e);
+            }
+        });
+    };
+}
+
 pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut state:S){
     document().body().expect("no html body!!").append_html("<canvas id=\"canvas\"></canvas>").expect("append canvas fail!!");
     state.on_load(&mut WebImageLoader{});
+
+    //声音播放
+    js!{
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        window.audioContext = new AudioContext();
+        window.audioContextResume = false;
+    };
     UPDATE_RATE.with(|rate|{ *rate.borrow_mut() = settings.ups; });
 
     if let Some(icon) = settings.icon_path{
@@ -182,6 +207,15 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut 
 
         canvas.add_event_listener(move |event: MouseMoveEvent| {
             STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().event(Event::MouseMove(event.client_x(), event.client_y())); });
+        });
+        canvas.add_event_listener(move |event: MouseDownEvent| {
+            js!{
+                if (window.audioContext.state !== "running" && !window.audioContextResume) {
+                    window.audioContext.resume();
+                    window.audioContextResume = true;
+                    console.log("AudioContextResume.");
+                }
+            };
         });
         // document().add_event_listener(move |event: KeyPressEvent| {
         //     event.prevent_default();

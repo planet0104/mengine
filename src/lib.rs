@@ -1,22 +1,26 @@
-#[cfg(target_arch = "asmjs")]
+#![recursion_limit="128"]
+
+#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 #[macro_use]
 extern crate stdweb;
 
 use std::time::{Duration, Instant};
 use std::any::Any;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
-#[cfg(not(target_arch = "asmjs"))]
+#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
 mod pc;
-#[cfg(not(target_arch = "asmjs"))]
+#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
 use pc as window;
 
-#[cfg(target_arch = "asmjs")]
+#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 mod web;
-#[cfg(target_arch = "asmjs")]
+#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 use web as window;
 
 pub use window::run;
+pub use window::play_sound;
 
 pub trait ImageLoader{
     fn load(&mut self, path:&str) -> Result<Rc<Image>, String>;
@@ -67,11 +71,11 @@ pub trait State: 'static{
     fn draw(&mut self, _graphics:&mut Graphics) -> Result<(), String>{
         Ok(())
     }
-    #[cfg(target_arch = "asmjs")]
+    #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
     fn handle_error(&mut self, error: String) {
         console!(error, error);
     }
-    #[cfg(not(target_arch = "asmjs"))]
+    #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
     fn handle_error(&mut self, error: String) {
         eprintln!("Unhandled error: {:?}", error);
     }
@@ -133,7 +137,9 @@ pub struct Animation {
     frames: Vec<Rect<f64>>,
     current: usize,
     current_time: u32,
-    frame_delay: u32
+    frame_delay: u32,
+    one_cycle: bool,
+    active: bool,
 }
 
 impl Animation {
@@ -143,16 +149,58 @@ impl Animation {
             frames,
             current: 0,
             current_time: 0,
-            frame_delay
+            frame_delay,
+            one_cycle: false,
+            active: false,
         }
+    }
+
+    pub fn active(image: Rc<Image>, frames:Vec<Rect<f64>>, frame_delay: u32) -> Animation{
+        let mut anim = Self::new(image, frames, frame_delay);
+        anim.start(0);
+        anim
+    }
+
+    pub fn is_active(&self) -> bool{
+        self.active
+    }
+
+    pub fn one_cycle(&mut self){
+        self.one_cycle = true;
+    }
+
+    pub fn start(&mut self, current: usize){
+        self.active = true;
+        self.current = current;
+        self.current_time = 0;
+    }
+
+    pub fn stop(&mut self, current: usize){
+        self.active = false;
+        self.current = current;
+        self.current_time = 0;
+    }
+
+    pub fn is_end(&self) -> bool{
+        self.current == self.frames.len()-1
     }
 
     /// Tick the animation forward by one step
     pub fn update(&mut self) {
-        self.current_time += 1;
-        if self.current_time >= self.frame_delay {
-            self.current = (self.current + 1) % self.frames.len();
-            self.current_time = 0;
+        if self.active{
+            self.current_time += 1;
+            if self.current_time >= self.frame_delay {
+                self.current += 1;
+                self.current_time = 0;
+                if self.current == self.frames.len(){
+                    if self.one_cycle{
+                        self.active = false;
+                        self.current -= 1;
+                    }else{
+                        self.current = 0;
+                    }
+                }
+            }
         }
     }
 
@@ -317,4 +365,114 @@ impl Default for Settings {
             font_file: None,
         }
     }
+}
+
+pub enum AudioType{
+    WAV,
+    MP3,
+    OGG,
+    FLAC
+}
+
+pub struct AssetsFile{
+    file_name: String,
+    data: Option<Vec<u8>>,
+    tmp_data: Arc<Mutex<Option<Vec<u8>>>>
+}
+
+impl AssetsFile{
+    pub fn new(file_name: &str) -> AssetsFile{
+        AssetsFile{
+            file_name: file_name.to_string(),
+            data: None,
+            tmp_data: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn load(&mut self){
+        #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
+        {
+            use stdweb::web::XmlHttpRequest;
+            use stdweb::web::XhrResponseType;
+            use stdweb::web::event::ReadyStateChangeEvent;
+            use stdweb::web::IEventTarget;
+            use stdweb::web::XhrReadyState;
+            use stdweb::traits::IEvent;
+            use stdweb::unstable::TryInto;
+            use stdweb::web::ArrayBuffer;
+            
+            let data_clone = self.tmp_data.clone();
+
+            let mut req = XmlHttpRequest::new();
+            match req.open("GET", &self.file_name){
+                Ok(_) => (),
+                Err(err) => println!("{:?}", err)
+            };
+            req.set_response_type(XhrResponseType::ArrayBuffer);
+            req.add_event_listener(move |event: ReadyStateChangeEvent|{
+                let req:XmlHttpRequest = js!{return @{event}.target}.try_into().unwrap();
+                if req.ready_state() == XhrReadyState::Done{
+                    if req.status() == 200{
+                        let array_buffer:ArrayBuffer = req.raw_response().try_into().unwrap();
+                        let contents:Vec<u8> = Vec::from(array_buffer);
+                        if let Ok(mut data) = data_clone.lock(){
+                            *data = Some(contents);
+                        }
+                    }
+                }
+            });
+            match req.send(){
+                Ok(_) => (),
+                Err(err) => println!("{:?}", err)
+            };
+        }
+
+        #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]{
+            use std::thread;
+            use std::fs::File;
+            use std::io::Read;
+            let data_clone = self.tmp_data.clone();
+            let file_name = self.file_name.clone();
+            thread::spawn(move || {
+                let file_name = "./static/".to_owned()+&file_name;
+                match File::open(file_name){
+                    Ok(mut file) => {
+                        let mut contents = vec![];
+                        match file.read_to_end(&mut contents){
+                            Ok(_) => {
+                                match data_clone.lock(){
+                                    Ok(mut data) => *data = Some(contents),
+                                    Err(err) => eprintln!("{:?}", err)
+                                };
+                            },
+                            Err(err) => eprintln!("{:?}", err)
+                        };
+                    },
+                    Err(err) => eprintln!("{:?}", err)
+                };
+            });
+        }
+    }
+
+    pub fn data(&mut self) -> Option<&Vec<u8>>{
+        if self.data == None{
+            if let Ok(mut tmp_data) = self.tmp_data.try_lock(){
+                if tmp_data.is_some(){
+                    //移出加载的临时文件数据
+                    self.data = tmp_data.take();
+                }
+            }
+        }
+        self.data.as_ref()
+    }
+}
+
+#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
+pub fn log<T: std::fmt::Debug>(s:T){
+    println!("{:?}", s);
+}
+
+#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
+pub fn log<T: std::fmt::Debug>(s:T){
+    console!(log, format!("{:?}", s));
 }

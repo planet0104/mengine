@@ -26,7 +26,7 @@ impl State for Game {
             frames.push(Rect::new(0., y as f64, 99., 82.));
         }
         self.sprites.push(Asteroid {
-            anim: Animation::new(images, frames, 5),
+            anim: Animation::active(images, frames, 5),
             region: Rect::new(100., 100., 99., 82.),
         });
     }
