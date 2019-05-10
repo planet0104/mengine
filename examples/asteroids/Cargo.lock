@@ -761,6 +761,7 @@ dependencies = [
  "gfx_device_gl 0.15.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston-gfx_texture 0.35.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston_window 0.89.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rodio 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "stdweb 0.4.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",

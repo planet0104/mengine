@@ -41,7 +41,7 @@ pub trait Graphics{
     /// ```
     /// g.draw_image(&image, Some([0, 0, 100, 100]), Some([0, 0, 100, 100])).expect("error!");
     /// ```
-    fn draw_image(&mut self, image:&Image, src:Option<&Rect<f64>>, dest:Option<&Rect<f64>>) -> Result<(), String>;
+    fn draw_image(&mut self, image:&Image, src:Option<[f64; 4]>, dest:Option<[f64; 4]>) -> Result<(), String>;
     /// 绘制文字
     ///
     /// # Arguments
@@ -60,12 +60,13 @@ pub trait Graphics{
 
 #[derive(Debug)]
 pub enum Event{
-    MouseMove(i32, i32),
+    MouseMove(f64, f64),
+    Click(f64, f64),
     KeyPress(String)
 }
 
 pub trait State: 'static{
-    fn on_load(&mut self, image_loader:&mut ImageLoader);
+    fn new(image_loader:&mut ImageLoader) -> Self;
     fn update(&mut self){}
     fn event(&mut self, _event:Event){}
     fn draw(&mut self, _graphics:&mut Graphics) -> Result<(), String>{
@@ -115,26 +116,26 @@ impl Timer {
 
 pub struct SubImage{
     image: Rc<Image>,
-    region: Rect<f64>,
+    region: [f64; 4],
 }
 
 impl SubImage {
-    pub fn new(image: Rc<Image>, region: Rect<f64>) -> SubImage{
+    pub fn new(image: Rc<Image>, region: [f64; 4]) -> SubImage{
         SubImage {
             image,
             region
         }
     }
 
-    pub fn draw(&self, g:&mut Graphics, dest:&Rect<f64>) -> Result<(), String>{
-        g.draw_image(self.image.as_ref(), Some(&self.region), Some(dest))
+    pub fn draw(&self, g:&mut Graphics, dest:[f64; 4]) -> Result<(), String>{
+        g.draw_image(self.image.as_ref(), Some(self.region), Some(dest))
     }
 }
 
 #[derive(Clone)]
 pub struct Animation {
     image: Rc<Image>,
-    frames: Vec<Rect<f64>>,
+    frames: Vec<[f64; 4]>,
     current: usize,
     current_time: u32,
     frame_delay: u32,
@@ -143,7 +144,7 @@ pub struct Animation {
 }
 
 impl Animation {
-    pub fn new(image: Rc<Image>, frames:Vec<Rect<f64>>, frame_delay: u32) -> Animation{
+    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, frame_delay: u32) -> Animation{
         Animation {
             image,
             frames,
@@ -155,7 +156,7 @@ impl Animation {
         }
     }
 
-    pub fn active(image: Rc<Image>, frames:Vec<Rect<f64>>, frame_delay: u32) -> Animation{
+    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, frame_delay: u32) -> Animation{
         let mut anim = Self::new(image, frames, frame_delay);
         anim.start(0);
         anim
@@ -204,8 +205,8 @@ impl Animation {
         }
     }
 
-    pub fn draw(&self, g:&mut Graphics, dest:&Rect<f64>) -> Result<(), String>{
-        g.draw_image(self.image.as_ref(), Some(&self.frames[self.current]), Some(dest))
+    pub fn draw(&self, g:&mut Graphics, dest:[f64; 4]) -> Result<(), String>{
+        g.draw_image(self.image.as_ref(), Some(self.frames[self.current]), Some(dest))
     }
 
     // --/// Get the current frame of the animation
@@ -397,18 +398,20 @@ impl AssetsFile{
             use stdweb::web::event::ReadyStateChangeEvent;
             use stdweb::web::IEventTarget;
             use stdweb::web::XhrReadyState;
-            use stdweb::traits::IEvent;
             use stdweb::unstable::TryInto;
             use stdweb::web::ArrayBuffer;
             
             let data_clone = self.tmp_data.clone();
 
-            let mut req = XmlHttpRequest::new();
+            let req = XmlHttpRequest::new();
             match req.open("GET", &self.file_name){
                 Ok(_) => (),
-                Err(err) => println!("{:?}", err)
+                Err(err) => eprintln!("{:?}", err)
             };
-            req.set_response_type(XhrResponseType::ArrayBuffer);
+            if let Err(err) = req.set_response_type(XhrResponseType::ArrayBuffer){
+                eprintln!("{:?}", err);
+            }
+
             req.add_event_listener(move |event: ReadyStateChangeEvent|{
                 let req:XmlHttpRequest = js!{return @{event}.target}.try_into().unwrap();
                 if req.ready_state() == XhrReadyState::Done{
@@ -475,4 +478,15 @@ pub fn log<T: std::fmt::Debug>(s:T){
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 pub fn log<T: std::fmt::Debug>(s:T){
     console!(log, format!("{:?}", s));
+}
+
+#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
+pub fn random() -> f64{
+    rand::random::<f64>()
+}
+
+#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
+pub fn random() -> f64{
+    use stdweb::unstable::TryInto;
+    return js!{return Math.random();}.try_into().unwrap();
 }

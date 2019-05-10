@@ -15,6 +15,7 @@ piston-gfx_texture = "0.35.0"
 gfx_device_gl = "0.15.5"
 winit = { version = "0.18.1", features = [ "icon_loading"] }
 rodio = "0.8.1"
+rand = "0.6.5"
 
 [target.'cfg(any(target_arch = "asmjs", target_arch = "wasm32"))'.dependencies]
 stdweb = "0.4.17"

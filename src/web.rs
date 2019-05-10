@@ -15,11 +15,12 @@ use stdweb::web::event::{
     MouseMoveEvent,
     MouseDownEvent,
     KeyPressEvent,
+    ClickEvent,
     KeyDownEvent,
     KeyUpEvent,
 };
 use stdweb::web::html_element::CanvasElement;
-use super::{AudioType, Settings, Rect, Event, Image, ImageLoader, Graphics, State};
+use super::{AudioType, Settings, Event, Image, ImageLoader, Graphics, State};
 use std::cell::RefCell;
 use std::any::Any;
 
@@ -55,21 +56,21 @@ impl Graphics for HTMLGraphics{
         self.context.fill_rect(x, y, width, height);
     }
 
-    fn draw_image(&mut self, image:&Image, src:Option<&Rect<f64>>, dest:Option<&Rect<f64>>) -> Result<(), String>{
+    fn draw_image(&mut self, image:&Image, src:Option<[f64; 4]>, dest:Option<[f64; 4]>) -> Result<(), String>{
         match image.as_any().downcast_ref::<WebImage>(){
             Some(image) => {
                 match if src.is_none() && dest.is_none(){
                     self.context.draw_image(image.image.clone(), 0., 0.)
                 }else if src.is_none() && dest.is_some(){
                     let dest = dest.unwrap();
-                    self.context.draw_image_d(image.image.clone(), dest.pos.x, dest.pos.y, dest.size.width, dest.size.height)
+                    self.context.draw_image_d(image.image.clone(), dest[0], dest[1], dest[2], dest[3])
                 }else if src.is_some() && dest.is_none(){
                     let src = src.unwrap();
-                    self.context.draw_image_s(image.image.clone(), src.pos.x, src.pos.y, src.size.width, src.size.height, 0., 0., image.image.width().into(), image.image.height().into())
+                    self.context.draw_image_s(image.image.clone(), src[0], src[1], src[2], src[3], 0., 0., image.image.width().into(), image.image.height().into())
                 }else{
                     let src = src.unwrap();
                     let dest = dest.unwrap();
-                    self.context.draw_image_s(image.image.clone(), src.pos.x, src.pos.y, src.size.width, src.size.height, dest.pos.x, dest.pos.y, dest.size.width, dest.size.height)
+                    self.context.draw_image_s(image.image.clone(), src[0], src[1], src[2], src[3], dest[0], dest[1], dest[2], dest[3])
                 }{
                     Err(err) => Err(format!("{:?}", err)),
                     Ok(_) => Ok(())
@@ -85,35 +86,6 @@ impl Graphics for HTMLGraphics{
         self.context.fill_text(cotnent, x, y, None);
         Ok(())
     }
-}
-
-thread_local! {
-    static UPDATE_RATE:RefCell<u64> = RefCell::new(30);
-    static GRAPHICS: RefCell<HTMLGraphics> = {
-        let canvas:CanvasElement = document().query_selector("#canvas").unwrap().unwrap().try_into().unwrap();
-        RefCell::new(HTMLGraphics{font_family:"Arial".to_string(), context: canvas.get_context().unwrap() })
-    };
-    static STATE:RefCell<Option<Box<State>>> = RefCell::new(None);
-}
-
-fn update_game(){
-    STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().update(); });
-    window().set_timeout(update_game, UPDATE_RATE.with(|rate|{ (1000.0 / *rate.borrow() as f64) as u32 }));
-}
-
-//request_animation_frame
-fn request_animation_frame(_timestamp:f64){
-    GRAPHICS.with(|graphics|{
-        STATE.with(|state|{
-            let mut state = state.borrow_mut();
-            let state = state.as_mut().expect("state borrow error!");
-            match state.draw(&mut *graphics.borrow_mut()){
-                Err(err) => state.handle_error(format!("draw {:?}", err)),
-                Ok(()) => ()
-            };
-        });
-    });
-    window().request_animation_frame(request_animation_frame);
 }
 
 pub fn play_sound(data:&[u8], _t:AudioType){
@@ -133,9 +105,13 @@ pub fn play_sound(data:&[u8], _t:AudioType){
     };
 }
 
-pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut state:S){
+pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
     document().body().expect("no html body!!").append_html("<canvas id=\"canvas\"></canvas>").expect("append canvas fail!!");
-    state.on_load(&mut WebImageLoader{});
+
+    let canvas:CanvasElement = document().query_selector("#canvas").unwrap().unwrap().try_into().unwrap();
+    let mut graphics = HTMLGraphics{font_family:"Arial".to_string(), context: canvas.get_context().unwrap() };
+
+    let state = Rc::new(RefCell::new(S::new(&mut WebImageLoader{})));
 
     //声音播放
     js!{
@@ -143,7 +119,6 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut 
         window.audioContext = new AudioContext();
         window.audioContextResume = false;
     };
-    UPDATE_RATE.with(|rate|{ *rate.borrow_mut() = settings.ups; });
 
     if let Some(icon) = settings.icon_path{
         let mut icon_link = String::from("<link rel=\"icon\" type=\"image/_type_\" href=\"_path_\" />");
@@ -171,7 +146,7 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut 
             let stem = path.file_stem().unwrap_or(OsStr::new("MyFont")).to_str().unwrap_or("MyFont");
             let mut style = String::new();
             style.push_str("<style>@font-face{ font-family: ");
-            GRAPHICS.with(|graphics|{ graphics.borrow_mut().font_family = stem.to_string() });
+            graphics.font_family = stem.to_string();
             style.push_str(stem);
             style.push_str("; src: url('");
             style.push_str(font);
@@ -184,17 +159,15 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut 
             Ok(())
         }(){
             Ok(_) => (),
-            Err(err) => state.handle_error(format!("font load error {:?}", err))
+            Err(err) => state.borrow_mut().handle_error(format!("font load error {:?}", err))
         }
     }
-
-    STATE.with(|s|{ *s.borrow_mut() = Some(Box::new(state)); });
 
     //init
     match ||->Result<(), Box<std::error::Error>>{
         let element = document().query_selector("#canvas")?;
         if element.is_none(){
-            STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().handle_error("canvas is None!".to_string()); });
+            state.borrow_mut().handle_error("canvas is None!".to_string());
             return Ok(());
         }
         let canvas: CanvasElement = element.unwrap().try_into()?;
@@ -202,13 +175,54 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut 
         canvas.set_height(height as u32);
         canvas.set_attribute("style", &format!("width:{}px;height:{}px", width, height))?;
         document().set_title(title);
-        window().request_animation_frame(request_animation_frame);
-        window().set_timeout(update_game, 0);
 
+        // request_animation_frame
+        let s_animation = state.clone();
+        let animation_fn = move ||{
+            let mut state = s_animation.borrow_mut();
+            if let Err(err) = state.draw(&mut graphics){
+                state.handle_error(format!("draw error {:?}", err));
+            }
+        };
+
+        js!{
+            var animation_fn = @{animation_fn};
+            window.request_animation_frame_fn = function(timestamp){
+                animation_fn();
+                requestAnimationFrame(window.request_animation_frame_fn);
+            };
+            requestAnimationFrame(window.request_animation_frame_fn);
+        };
+
+        // update
+
+        let s_update = state.clone();
+        let update_fn = move ||{
+            s_update.borrow_mut().update();
+        };
+        update_fn();
+        let delay = (1000.0 / settings.ups as f64) as u32;
+        js!{
+            var delay = @{delay};
+            var update_callback = @{update_fn};
+            function game_update(){
+                update_callback();
+                setTimeout(game_update, delay);
+            }
+            setTimeout(game_update, 0);
+        };
+
+        let s_mouse_move = state.clone();
         canvas.add_event_listener(move |event: MouseMoveEvent| {
-            STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().event(Event::MouseMove(event.client_x(), event.client_y())); });
+            s_mouse_move.borrow_mut().event(Event::MouseMove(event.offset_x(), event.offset_y()));
         });
-        canvas.add_event_listener(move |event: MouseDownEvent| {
+
+        let s_click = state.clone();
+        canvas.add_event_listener(move |event: ClickEvent| {
+            s_click.borrow_mut().event(Event::Click(event.offset_x(), event.offset_y()));
+        });
+        
+        canvas.add_event_listener(move |_event: MouseDownEvent| {
             js!{
                 if (window.audioContext.state !== "running" && !window.audioContextResume) {
                     window.audioContext.resume();
@@ -221,13 +235,14 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings, mut 
         //     event.prevent_default();
         //     STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().event(Event::KeyPress(event.key().to_uppercase())); });
         // });
+        let s_key_down = state.clone();
         document().add_event_listener(move |event: KeyDownEvent| {
             event.prevent_default();
-            STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().event(Event::KeyPress(event.key().to_uppercase())); });
+            s_key_down.borrow_mut().event(Event::KeyPress(event.key().to_uppercase()));
         });
         Ok(())
     }(){
         Ok(_) => (),
-        Err(err) => STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().handle_error(format!("init error {:?}", err)); })
+        Err(err) => state.borrow_mut().handle_error(format!("init error {:?}", err))
     }
 }

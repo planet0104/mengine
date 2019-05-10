@@ -1,9 +1,9 @@
 use piston_window::{PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
-use super::{AudioType, Settings, Rect, Event, ImageLoader, Image, Graphics, Timer, State};
+use super::{AudioType, Settings, Event, ImageLoader, Image, Graphics, Timer, State};
 use std::path::Path;
 use std::any::Any;
 use std::cell::RefCell;
-use piston_window::mouse::MouseCursorEvent;
+use piston_window::mouse::{MouseButton, MouseCursorEvent};
 use piston_window::keyboard::Key;
 use std::rc::Rc;
 use winit::Icon;
@@ -42,15 +42,15 @@ impl <'a, 'b> Graphics for PistonGraphics<'a, 'b>{
                 self.graphics);
     }
 
-    fn draw_image(&mut self, image:&Image, src:Option<&Rect<f64>>, dest:Option<&Rect<f64>>) -> Result<(), String>{
+    fn draw_image(&mut self, image:&Image, src:Option<[f64; 4]>, dest:Option<[f64; 4]>) -> Result<(), String>{
         match image.as_any().downcast_ref::<PcImage>(){
             Some(image) => {
                 let mut gfx_image  = GfxImage::new();
                 if let Some(src) = src{
-                    gfx_image = gfx_image.src_rect(src.to_slice());
+                    gfx_image = gfx_image.src_rect(src);
                 }
                 if let Some(dest) = dest{
-                    gfx_image = gfx_image.rect(dest.to_slice());
+                    gfx_image = gfx_image.rect(dest);
                 }
                 gfx_image.draw(&image.texture, &self.context.draw_state, self.context.transform, self.graphics);
                 Ok(())
@@ -98,79 +98,85 @@ pub fn play_sound(data:&[u8], _t:AudioType){
     });
 }
 
-pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings, mut state:S){
+pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings){
     //第一次启动窗口不移动鼠标也会触发一次mouse move事件，过滤这个事件
     let mut got_first_mouse_event = false;
-    match WindowSettings::new(title, [width, height]).exit_on_esc(true).build(){
-        Err(err) => state.handle_error(format!("PistonWindow create failed! {:?}", err)),
-        Ok(mut window) => {
-            let mut texture_loader = TextureLoader{window:&mut window};
+    let mut window = WindowSettings::new(title, [width, height]).exit_on_esc(true).build().unwrap();
+    let mut texture_loader = TextureLoader{window:&mut window};
 
-            state.on_load(&mut texture_loader);
+    let mut state = S::new(&mut texture_loader);
 
-            let mut update_timer = Timer::new(settings.ups);
+    let mut update_timer = Timer::new(settings.ups);
 
-            let mut glyphs = None;
-            if let Some(font) = settings.font_file{
-                let font = "./static/".to_owned()+font;
-                match Glyphs::new(font.clone(), window.factory.clone(), TextureSettings::new().filter(Filter::Nearest)){
-                    Ok(g) => glyphs = Some(RefCell::new(g)),
-                    Err(err) => state.handle_error(format!("font load failed! {} {:?}", font, err))
-                };
-            }
+    let mut glyphs = None;
+    if let Some(font) = settings.font_file{
+        let font = "./static/".to_owned()+font;
+        match Glyphs::new(font.clone(), window.factory.clone(), TextureSettings::new().filter(Filter::Nearest)){
+            Ok(g) => glyphs = Some(RefCell::new(g)),
+            Err(err) => state.handle_error(format!("font load failed! {} {:?}", font, err))
+        };
+    }
 
-            if let Some(path) = settings.icon_path{
-                let path = "./static/".to_owned()+path;
-                let icon = Icon::from_path(path).unwrap();
-                window.window.window.set_window_icon(Some(icon));
-            }
+    if let Some(path) = settings.icon_path{
+        let path = "./static/".to_owned()+path;
+        let icon = Icon::from_path(path).unwrap();
+        window.window.window.set_window_icon(Some(icon));
+    }
 
-            while let Some(event) = window.next() {
-                if update_timer.ready_for_next_frame() {
-                    state.update();
-                }
-                window.draw_2d(&event, |context, graphics| {
-                    match state.draw(&mut PistonGraphics{glyphs: glyphs.as_ref(), context: context, graphics: graphics}){
-                        Ok(()) => (),
-                        Err(err) => state.handle_error(format!("font load failed! {:?}", err))
-                    };
-                });
-                event.mouse_cursor(|x, y| {
-                    if got_first_mouse_event{
-                        state.event(Event::MouseMove(x as i32, y as i32));    
-                    }else{
-                        got_first_mouse_event = true;
-                    }
-                });
-                if let Some(Button::Keyboard(key)) = event.press_args() {
-                    match key{
-                        Key::D0 |
-                        Key::D1 |
-                        Key::D2 |
-                        Key::D3 |
-                        Key::D4 |
-                        Key::D5 |
-                        Key::D6 |
-                        Key::D7 |
-                        Key::D8 |
-                        Key::D9 |
-                        Key::NumPad0 |
-                        Key::NumPad1 |
-                        Key::NumPad2 |
-                        Key::NumPad3 |
-                        Key::NumPad4 |
-                        Key::NumPad5 |
-                        Key::NumPad6 |
-                        Key::NumPad7 |
-                        Key::NumPad8 |
-                        Key::NumPad9 => {
-                            let key = format!("{:?}", key);
-                            state.event(Event::KeyPress(key.replace("D", "").replace("NumPad", "")))
-                        }
-                        _ => state.event(Event::KeyPress(format!("{:?}", key)))
-                    };
-                };
-            }
+    let mut mouse_pos = [0.0; 2];
+
+    while let Some(event) = window.next() {
+        if update_timer.ready_for_next_frame() {
+            state.update();
         }
-    };
+        window.draw_2d(&event, |context, graphics| {
+            match state.draw(&mut PistonGraphics{glyphs: glyphs.as_ref(), context: context, graphics: graphics}){
+                Ok(()) => (),
+                Err(err) => state.handle_error(format!("font load failed! {:?}", err))
+            };
+        });
+        event.mouse_cursor(|x, y| {
+            if got_first_mouse_event{
+                mouse_pos[0] = x;
+                mouse_pos[1] = y;
+                state.event(Event::MouseMove(x, y));
+            }else{
+                got_first_mouse_event = true;
+            }
+        });
+        if let Some(Button::Mouse(mouse)) = event.press_args() {
+            match mouse{
+                MouseButton::Left => state.event(Event::Click(mouse_pos[0], mouse_pos[1])),
+                _ => ()
+            };
+        }
+        if let Some(Button::Keyboard(key)) = event.press_args() {
+            match key{
+                Key::D0 |
+                Key::D1 |
+                Key::D2 |
+                Key::D3 |
+                Key::D4 |
+                Key::D5 |
+                Key::D6 |
+                Key::D7 |
+                Key::D8 |
+                Key::D9 |
+                Key::NumPad0 |
+                Key::NumPad1 |
+                Key::NumPad2 |
+                Key::NumPad3 |
+                Key::NumPad4 |
+                Key::NumPad5 |
+                Key::NumPad6 |
+                Key::NumPad7 |
+                Key::NumPad8 |
+                Key::NumPad9 => {
+                    let key = format!("{:?}", key);
+                    state.event(Event::KeyPress(key.replace("D", "").replace("NumPad", "")))
+                }
+                _ => state.event(Event::KeyPress(format!("{:?}", key)))
+            };
+        };
+    }
 }
