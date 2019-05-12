@@ -25,10 +25,11 @@ impl State for Game {
         for y in (0..1148).step_by(82) {
             frames.push([0., y as f64, 99., 82.]);
         }
-
+        let mut anim = Animation::active(images, frames, 15);
+        anim.set_repeat(true);
         Game{
             sprite: Asteroid {
-                anim: Animation::active(images, frames, 5),
+                anim,
                 region: [100., 100., 99., 82.],
             }
         }

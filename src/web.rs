@@ -28,18 +28,22 @@ struct WebImageLoader{}
 impl ImageLoader for WebImageLoader{
     fn load(&mut self, path:&str) -> Result<Rc<Image>, String>{
         let image = ImageElement::new();
-        image.set_src(path);
-        Ok(Rc::new(WebImage{image}))
+        let web_image = Rc::new(WebImage{image});
+        web_image.image.set_src(path);
+        Ok(web_image)
     }
 }
 
 struct WebImage{
     image: ImageElement
 }
-impl WebImage{
-    
-}
 impl Image for WebImage{
+    fn width(&self) -> u32{
+        self.image.width()
+    }
+    fn height(&self) -> u32{
+        self.image.height()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -201,6 +205,7 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
             s_update.borrow_mut().update();
         };
         update_fn();
+
         let delay = (1000.0 / settings.ups as f64) as u32;
         js!{
             var delay = @{delay};

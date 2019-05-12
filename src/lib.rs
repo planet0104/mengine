@@ -83,10 +83,44 @@ pub trait State: 'static{
 }
 
 pub trait Image{
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
     fn as_any(&self) -> &dyn Any;
 }
 
 //计时器
+#[derive(Clone)]
+pub struct AnimationTimer {
+    frame_time: u128,
+    next_time: u128,
+}
+
+impl AnimationTimer {
+    pub fn new(fps: u128) -> AnimationTimer {
+        AnimationTimer {
+            frame_time: 1000 / fps,
+            next_time: 0,
+        }
+    }
+
+    pub fn reset(&mut self){
+        self.next_time = 0;
+    }
+
+    pub fn ready_for_next_frame(&mut self) -> bool {
+        let now = current_timestamp();
+        if now >= self.next_time {
+            //更新时间
+            self.next_time = now + self.frame_time;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+//计时器
+#[derive(Clone)]
 pub struct Timer {
     frame_time: u64, //微妙
     start_time: Instant,
@@ -100,6 +134,11 @@ impl Timer {
             start_time: Instant::now(),
             next_time: Duration::from_millis(0),
         }
+    }
+
+    pub fn reset(&mut self){
+        self.start_time = Instant::now();
+        self.next_time = Duration::from_millis(0);
     }
 
     pub fn ready_for_next_frame(&mut self) -> bool {
@@ -134,85 +173,104 @@ impl SubImage {
 
 #[derive(Clone)]
 pub struct Animation {
+    timer: AnimationTimer,
     image: Rc<Image>,
     frames: Vec<[f64; 4]>,
-    current: usize,
-    current_time: u32,
-    frame_delay: u32,
-    one_cycle: bool,
+    current: i32,
+    repeat: bool,
     active: bool,
+    end: bool, //current == frames.len()
+    pub position: Option<[f64; 4]>
 }
 
 impl Animation {
-    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, frame_delay: u32) -> Animation{
+    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u128) -> Animation{
         Animation {
+            timer: AnimationTimer::new(fps),
             image,
             frames,
-            current: 0,
-            current_time: 0,
-            frame_delay,
-            one_cycle: false,
+            current: -1,
+            repeat: false,
             active: false,
+            end: false,
+            position: None
         }
     }
 
-    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, frame_delay: u32) -> Animation{
-        let mut anim = Self::new(image, frames, frame_delay);
-        anim.start(0);
+    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u128) -> Animation{
+        let mut anim = Self::new(image, frames, fps);
+        anim.start();
         anim
+    }
+
+    pub fn frame_width(&self) -> f64{
+        if self.frames.len() == 0{
+            0.0
+        }else{
+            self.frames[0][2]
+        }
+    }
+
+    pub fn frame_height(&self) -> f64{
+        if self.frames.len() == 0{
+            0.0
+        }else{
+            self.frames[0][3]
+        }
     }
 
     pub fn is_active(&self) -> bool{
         self.active
     }
 
-    pub fn one_cycle(&mut self){
-        self.one_cycle = true;
+    pub fn set_repeat(&mut self, repeat: bool){
+        self.repeat = repeat;
     }
 
-    pub fn start(&mut self, current: usize){
+    pub fn start(&mut self){
         self.active = true;
-        self.current = current;
-        self.current_time = 0;
+        self.current = -1;
+        self.timer.reset();
     }
 
-    pub fn stop(&mut self, current: usize){
+    pub fn stop(&mut self){
         self.active = false;
-        self.current = current;
-        self.current_time = 0;
     }
 
     pub fn is_end(&self) -> bool{
-        self.current == self.frames.len()-1
+        self.current == self.frames.len() as i32
     }
 
     /// Tick the animation forward by one step
-    pub fn update(&mut self) {
+    pub fn update(&mut self) -> bool{
+        let mut jump = false;
         if self.active{
-            self.current_time += 1;
-            if self.current_time >= self.frame_delay {
+            if self.timer.ready_for_next_frame(){
                 self.current += 1;
-                self.current_time = 0;
-                if self.current == self.frames.len(){
-                    if self.one_cycle{
-                        self.active = false;
-                        self.current -= 1;
-                    }else{
+                if self.current == self.frames.len() as i32{
+                    if self.repeat{
                         self.current = 0;
+                    }else{
+                        self.active = false;
                     }
                 }
+                jump = true;
             }
         }
+        jump
     }
 
     pub fn draw(&self, g:&mut Graphics, dest:[f64; 4]) -> Result<(), String>{
-        g.draw_image(self.image.as_ref(), Some(self.frames[self.current]), Some(dest))
+        let mut current = 0;
+        if self.current > 0{
+            current = if self.current==self.frames.len() as i32{
+                self.frames.len() as i32-1
+            }else{
+                self.current
+            };   
+        }
+        g.draw_image(self.image.as_ref(), Some(self.frames[current as usize]), Some(dest))
     }
-
-    // --/// Get the current frame of the animation
-    // pub fn current_frame(&self) -> &Image {
-    //     &self.frames[self.current]
-    // }
 }
 
 use std::ops::{Sub, Add, AddAssign, SubAssign};
@@ -489,4 +547,18 @@ pub fn random() -> f64{
 pub fn random() -> f64{
     use stdweb::unstable::TryInto;
     return js!{return Math.random();}.try_into().unwrap();
+}
+
+#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
+pub fn current_timestamp() -> u128{
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH)
+        .expect("Time went backwards").as_millis()
+}
+
+#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
+pub fn current_timestamp() -> u128{
+    use stdweb::unstable::TryInto;
+    let t:u64 = js!{return Date.now();}.try_into().unwrap();
+    t as u128
 }

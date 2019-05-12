@@ -18,4 +18,5 @@ rodio = "0.8.1"
 rand = "0.6.5"
 
 [target.'cfg(any(target_arch = "asmjs", target_arch = "wasm32"))'.dependencies]
+wasm-bindgen = "*"
 stdweb = "0.4.17"

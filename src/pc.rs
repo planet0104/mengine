@@ -1,4 +1,4 @@
-use piston_window::{PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
+use piston_window::{ImageSize, PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
 use super::{AudioType, Settings, Event, ImageLoader, Image, Graphics, Timer, State};
 use std::path::Path;
 use std::any::Any;
@@ -15,14 +15,22 @@ impl <'a> ImageLoader for TextureLoader<'a>{
     fn load(&mut self, path:&str) -> Result<Rc<Image>, String>{
         let path = "./static/".to_owned()+path;
         let texture = Texture::from_path(&mut self.window.factory, Path::new(&path), Flip::None, &TextureSettings::new())?;
-        Ok(Rc::new(PcImage{texture}))
+        Ok(Rc::new(PcImage{width: texture.get_width(), height: texture.get_height(), texture}))
     }
 }
 
 struct PcImage{
+    width: u32,
+    height: u32,
     texture: gfx_texture::Texture<gfx_device_gl::Resources>
 }
 impl Image for PcImage{
+    fn width(&self) -> u32{
+        self.width
+    }
+    fn height(&self) -> u32{
+        self.height
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
