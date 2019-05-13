@@ -7,17 +7,18 @@ use std::path::Path;
 use std::rc::Rc;
 use stdweb::web::{
     document,
-    window,
     CanvasRenderingContext2d
 };
 
 use stdweb::web::event::{
-    MouseMoveEvent,
     MouseDownEvent,
-    KeyPressEvent,
+    // KeyPressEvent,
     ClickEvent,
     KeyDownEvent,
-    KeyUpEvent,
+    // KeyUpEvent,
+    ITouchEvent,
+    PointerMoveEvent,
+    TouchMove,
 };
 use stdweb::web::html_element::CanvasElement;
 use super::{AudioType, Settings, Event, Image, ImageLoader, Graphics, State};
@@ -85,8 +86,8 @@ impl Graphics for HTMLGraphics{
     }
 
     fn draw_text(&mut self, cotnent:&str, x:f64, y:f64, color:&[u8; 4], font_size:u32) -> Result<(), String>{
-        self.context.set_fill_style_color(&format!("rgba({},{},{},{})", color[0], color[1], color[2], color[3]));
-        self.context.set_font(&format!("{}pt {}", font_size, self.font_family));
+        self.context.set_fill_style_color(&format!("rgba({},{},{},{})", color[0], color[1], color[2], color[3] as f64/255.0));
+        self.context.set_font(&format!("{}px {}", font_size, self.font_family));
         self.context.fill_text(cotnent, x, y, None);
         Ok(())
     }
@@ -141,6 +142,8 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
             let _ = head.append_html(&icon_link);
             icon_link = icon_link.replace("rel=\"icon\"", "rel=\"shortcut icon\"");
             let _ = head.append_html(&icon_link);
+            let _ = head.append_html("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0,maximum-scale=1.0, user-scalable=no\"/>");
+            let _ = head.append_html("<meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />");
         }
     }
 
@@ -218,8 +221,16 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
         };
 
         let s_mouse_move = state.clone();
-        canvas.add_event_listener(move |event: MouseMoveEvent| {
+        canvas.add_event_listener(move |event: PointerMoveEvent| {
             s_mouse_move.borrow_mut().event(Event::MouseMove(event.offset_x(), event.offset_y()));
+        });
+
+        let s_touch_move = state.clone();
+        canvas.add_event_listener(move |event: TouchMove| {
+            let touchs = event.target_touches();
+            if touchs.len()>0{
+                s_touch_move.borrow_mut().event(Event::MouseMove(touchs[0].client_x(), touchs[0].client_y()));
+            }
         });
 
         let s_click = state.clone();

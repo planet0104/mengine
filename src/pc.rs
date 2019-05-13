@@ -1,5 +1,5 @@
-use piston_window::{ImageSize, PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
-use super::{AudioType, Settings, Event, ImageLoader, Image, Graphics, Timer, State};
+use piston_window::{UpdateEvent, EventSettings, EventLoop, ImageSize, PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
+use super::{AudioType, Settings, Event, ImageLoader, Image, Graphics, State};
 use std::path::Path;
 use std::any::Any;
 use std::cell::RefCell;
@@ -109,12 +109,11 @@ pub fn play_sound(data:&[u8], _t:AudioType){
 pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings){
     //第一次启动窗口不移动鼠标也会触发一次mouse move事件，过滤这个事件
     let mut got_first_mouse_event = false;
-    let mut window = WindowSettings::new(title, [width, height]).exit_on_esc(true).build().unwrap();
+    let mut window:PistonWindow = WindowSettings::new(title, [width, height]).exit_on_esc(true).build().unwrap();
+    window.set_event_settings(EventSettings{ups: settings.ups, ..Default::default()});
     let mut texture_loader = TextureLoader{window:&mut window};
 
     let mut state = S::new(&mut texture_loader);
-
-    let mut update_timer = Timer::new(settings.ups);
 
     let mut glyphs = None;
     if let Some(font) = settings.font_file{
@@ -134,9 +133,9 @@ pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings){
     let mut mouse_pos = [0.0; 2];
 
     while let Some(event) = window.next() {
-        if update_timer.ready_for_next_frame() {
+        event.update(|_u|{
             state.update();
-        }
+        });
         window.draw_2d(&event, |context, graphics| {
             match state.draw(&mut PistonGraphics{glyphs: glyphs.as_ref(), context: context, graphics: graphics}){
                 Ok(()) => (),

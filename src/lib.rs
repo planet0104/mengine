@@ -4,7 +4,6 @@
 #[macro_use]
 extern crate stdweb;
 
-use std::time::{Duration, Instant};
 use std::any::Any;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -91,12 +90,12 @@ pub trait Image{
 //计时器
 #[derive(Clone)]
 pub struct AnimationTimer {
-    frame_time: u128,
-    next_time: u128,
+    frame_time: u64,
+    next_time: u64,
 }
 
 impl AnimationTimer {
-    pub fn new(fps: u128) -> AnimationTimer {
+    pub fn new(fps: u64) -> AnimationTimer {
         AnimationTimer {
             frame_time: 1000 / fps,
             next_time: 0,
@@ -112,40 +111,6 @@ impl AnimationTimer {
         if now >= self.next_time {
             //更新时间
             self.next_time = now + self.frame_time;
-            true
-        } else {
-            false
-        }
-    }
-}
-
-//计时器
-#[derive(Clone)]
-pub struct Timer {
-    frame_time: u64, //微妙
-    start_time: Instant,
-    next_time: Duration,
-}
-
-impl Timer {
-    pub fn new(fps: u64) -> Timer {
-        Timer {
-            frame_time: 1_000_000 / fps,
-            start_time: Instant::now(),
-            next_time: Duration::from_millis(0),
-        }
-    }
-
-    pub fn reset(&mut self){
-        self.start_time = Instant::now();
-        self.next_time = Duration::from_millis(0);
-    }
-
-    pub fn ready_for_next_frame(&mut self) -> bool {
-        if self.start_time.elapsed() >= self.next_time {
-            //更新时间
-            self.next_time =
-                self.start_time.elapsed() + Duration::from_micros(self.frame_time);
             true
         } else {
             false
@@ -184,7 +149,7 @@ pub struct Animation {
 }
 
 impl Animation {
-    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u128) -> Animation{
+    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u64) -> Animation{
         Animation {
             timer: AnimationTimer::new(fps),
             image,
@@ -197,7 +162,7 @@ impl Animation {
         }
     }
 
-    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u128) -> Animation{
+    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u64) -> Animation{
         let mut anim = Self::new(image, frames, fps);
         anim.start();
         anim
@@ -550,15 +515,14 @@ pub fn random() -> f64{
 }
 
 #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-pub fn current_timestamp() -> u128{
+pub fn current_timestamp() -> u64{
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now().duration_since(UNIX_EPOCH)
-        .expect("Time went backwards").as_millis()
+        .expect("Time went backwards").as_millis() as u64
 }
 
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
-pub fn current_timestamp() -> u128{
+pub fn current_timestamp() -> u64{
     use stdweb::unstable::TryInto;
-    let t:u64 = js!{return Date.now();}.try_into().unwrap();
-    t as u128
+    js!(return Date.now();).try_into().unwrap()
 }
