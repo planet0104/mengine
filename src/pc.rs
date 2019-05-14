@@ -1,4 +1,4 @@
-use piston_window::{UpdateEvent, EventSettings, EventLoop, ImageSize, PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
+use piston_window::{Window, UpdateEvent, EventSettings, EventLoop, ImageSize, PressEvent, Button, Transformed, Filter, Glyphs, Text, rectangle, Image as GfxImage, TextureSettings, Flip, Texture, Context, G2d, PistonWindow, WindowSettings};
 use super::{AudioType, Settings, Event, ImageLoader, Image, Graphics, State};
 use std::path::Path;
 use std::any::Any;
@@ -131,13 +131,55 @@ pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings){
     }
 
     let mut mouse_pos = [0.0; 2];
-
+    
+    let background_color = settings.background_color;
+    let draw_center = settings.draw_center;
+    let auto_scale = settings.auto_scale;
+    let mut scale_x = 1.0;
+    let mut scale_y = 1.0;
+    let mut trans_x = 0.0;
+    let mut trans_y = 0.0;
     while let Some(event) = window.next() {
+        let widnow_size = window.size();
         event.update(|_u|{
             state.update();
         });
         window.draw_2d(&event, |context, graphics| {
-            match state.draw(&mut PistonGraphics{glyphs: glyphs.as_ref(), context: context, graphics: graphics}){
+            if let Some(bc) = background_color{
+                //填充背景
+                rectangle([bc[0] as f32/255.0, bc[1] as f32/255.0, bc[2] as f32/255.0, bc[3] as f32/255.0],
+                    [0., 0., widnow_size.width, widnow_size.height],
+                    context.transform,
+                    graphics);
+            }
+            let (mut new_width, mut new_height) = (width, height);
+            let c = if auto_scale{
+                //画面不超过窗口高度
+                new_height = widnow_size.height;
+                new_width = new_height/height*width;
+
+                if new_width>widnow_size.width{
+                    new_width = widnow_size.width;
+                    new_height = new_width/width*height;
+                }
+                scale_x = new_width/width;
+                scale_y = new_height/height;
+                context.scale(scale_x, scale_y)
+            }else{
+                scale_x = 1.0;
+                scale_y = 1.0;
+                context
+            };
+            let c =  if draw_center{
+                trans_x = (widnow_size.width-new_width)/2.;
+                trans_y = (widnow_size.height-new_height)/2.;
+                c.trans(trans_x/scale_x, trans_y/scale_y)
+            }else{
+                trans_x = 0.0;
+                trans_y = 0.0;
+                c
+            };
+            match state.draw(&mut PistonGraphics{glyphs: glyphs.as_ref(), context: c, graphics: graphics}){
                 Ok(()) => (),
                 Err(err) => state.handle_error(format!("font load failed! {:?}", err))
             };
@@ -146,14 +188,14 @@ pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings){
             if got_first_mouse_event{
                 mouse_pos[0] = x;
                 mouse_pos[1] = y;
-                state.event(Event::MouseMove(x, y));
+                state.event(Event::MouseMove((x-trans_x)/scale_x, (y-trans_y)/scale_y));
             }else{
                 got_first_mouse_event = true;
             }
         });
         if let Some(Button::Mouse(mouse)) = event.press_args() {
             match mouse{
-                MouseButton::Left => state.event(Event::Click(mouse_pos[0], mouse_pos[1])),
+                MouseButton::Left => state.event(Event::Click((mouse_pos[0]-trans_x)/scale_x, (mouse_pos[1]-trans_y)/scale_y)),
                 _ => ()
             };
         }
@@ -186,4 +228,18 @@ pub fn run<S:State>(title:&str, width:f64, height:f64, settings: Settings){
             };
         };
     }
+}
+
+pub fn current_timestamp() -> f64{
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH)
+        .expect("Time went backwards").as_millis() as f64
+}
+
+pub fn random() -> f64{
+    rand::random::<f64>()
+}
+
+pub fn log<T: std::fmt::Debug>(s:T){
+    println!("{:?}", s);
 }

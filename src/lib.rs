@@ -18,8 +18,7 @@ mod web;
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 use web as window;
 
-pub use window::run;
-pub use window::play_sound;
+pub use window::{play_sound, run, random, log, current_timestamp};
 
 pub trait ImageLoader{
     fn load(&mut self, path:&str) -> Result<Rc<Image>, String>;
@@ -90,27 +89,27 @@ pub trait Image{
 //计时器
 #[derive(Clone)]
 pub struct AnimationTimer {
-    frame_time: u64,
-    next_time: u64,
+    frame_time: f64,
+    next_time: f64,
 }
 
 impl AnimationTimer {
-    pub fn new(fps: u64) -> AnimationTimer {
+    pub fn new(fps: f64) -> AnimationTimer {
         AnimationTimer {
-            frame_time: 1000 / fps,
-            next_time: 0,
+            frame_time: 1000.0 / fps,
+            next_time: current_timestamp(),
         }
     }
 
     pub fn reset(&mut self){
-        self.next_time = 0;
+        self.next_time = current_timestamp();
     }
 
     pub fn ready_for_next_frame(&mut self) -> bool {
         let now = current_timestamp();
         if now >= self.next_time {
             //更新时间
-            self.next_time = now + self.frame_time;
+            self.next_time += self.frame_time;
             true
         } else {
             false
@@ -149,7 +148,7 @@ pub struct Animation {
 }
 
 impl Animation {
-    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u64) -> Animation{
+    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: f64) -> Animation{
         Animation {
             timer: AnimationTimer::new(fps),
             image,
@@ -162,7 +161,7 @@ impl Animation {
         }
     }
 
-    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: u64) -> Animation{
+    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: f64) -> Animation{
         let mut anim = Self::new(image, frames, fps);
         anim.start();
         anim
@@ -375,6 +374,12 @@ pub struct Settings {
     pub icon_path: Option<&'static str>, // TODO: statiC?
     /// 字体文件名(static文件夹)
     pub font_file: Option<&'static str>,
+    /// 背景色[r,g,b,a]
+    pub background_color: Option<[u8; 4]>,
+    /// 居中绘图
+    pub draw_center: bool,
+    // 自动缩放
+    pub auto_scale: bool,
 }
 
 impl Default for Settings {
@@ -387,6 +392,9 @@ impl Default for Settings {
             ups: 60,
             icon_path: None,
             font_file: None,
+            background_color: None,
+            draw_center: true,
+            auto_scale: false,
         }
     }
 }
@@ -491,38 +499,4 @@ impl AssetsFile{
         }
         self.data.as_ref()
     }
-}
-
-#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-pub fn log<T: std::fmt::Debug>(s:T){
-    println!("{:?}", s);
-}
-
-#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
-pub fn log<T: std::fmt::Debug>(s:T){
-    console!(log, format!("{:?}", s));
-}
-
-#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-pub fn random() -> f64{
-    rand::random::<f64>()
-}
-
-#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
-pub fn random() -> f64{
-    use stdweb::unstable::TryInto;
-    return js!{return Math.random();}.try_into().unwrap();
-}
-
-#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-pub fn current_timestamp() -> u64{
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH)
-        .expect("Time went backwards").as_millis() as u64
-}
-
-#[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
-pub fn current_timestamp() -> u64{
-    use stdweb::unstable::TryInto;
-    js!(return Date.now();).try_into().unwrap()
 }

@@ -1,6 +1,6 @@
 [package]
 name = "mengine"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["planet0104 <planet0104@gmail.com>"]
 edition = "2018"
 
@@ -20,3 +20,4 @@ rand = "0.6.5"
 [target.'cfg(any(target_arch = "asmjs", target_arch = "wasm32"))'.dependencies]
 wasm-bindgen = "*"
 stdweb = "0.4.17"
+askama = "0.8.0"

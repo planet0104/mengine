@@ -6,6 +6,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::rc::Rc;
 use stdweb::web::{
+    window,
     document,
     CanvasRenderingContext2d
 };
@@ -19,6 +20,7 @@ use stdweb::web::event::{
     ITouchEvent,
     PointerMoveEvent,
     TouchMove,
+    ResizeEvent,
 };
 use stdweb::web::html_element::CanvasElement;
 use super::{AudioType, Settings, Event, Image, ImageLoader, Graphics, State};
@@ -117,6 +119,8 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
     let mut graphics = HTMLGraphics{font_family:"Arial".to_string(), context: canvas.get_context().unwrap() };
 
     let state = Rc::new(RefCell::new(S::new(&mut WebImageLoader{})));
+    let (trans_x, trans_y) = (Rc::new(RefCell::new(0.0)), Rc::new(RefCell::new(0.0)));
+    let (scale_x, scale_y) = (Rc::new(RefCell::new(1.0)), Rc::new(RefCell::new(1.0)));
 
     //声音播放
     js!{
@@ -125,117 +129,184 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
         window.audioContextResume = false;
     };
 
-    if let Some(icon) = settings.icon_path{
-        let mut icon_link = String::from("<link rel=\"icon\" type=\"image/_type_\" href=\"_path_\" />");
-        icon_link = icon_link.replace("_path_", icon);
-        let icon_path = Path::new(icon);
-        if let Some(ext) = icon_path.extension(){    
-            if ext == "ico"{
-                icon_link = icon_link.replace("_type_", "x-icon");
-            }else{
-                icon_link = icon_link.replace("_type_", ext.to_str().unwrap_or("*"));
-            }
-        }else{
-            icon_link = icon_link.replace("_type_", "*");
-        }
-        if let Some(head) = document().head(){
-            let _ = head.append_html(&icon_link);
-            icon_link = icon_link.replace("rel=\"icon\"", "rel=\"shortcut icon\"");
-            let _ = head.append_html(&icon_link);
-            let _ = head.append_html("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0,maximum-scale=1.0, user-scalable=no\"/>");
-            let _ = head.append_html("<meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />");
-        }
+    use askama::Template;
+
+    #[derive(Template)]
+    #[template(path = "head_part.html")]
+    struct Context<'a> {
+        icon_type: &'a str,
+        icon_href: &'a str,
+        background_color: &'a str,
+        font_family: &'a str,
+        font_src: &'a str,
     }
 
-    if let Some(font) = settings.font_file{
-        match ||->Result<(), Box<std::error::Error>>{
-            let path = Path::new(font);
-            let stem = path.file_stem().unwrap_or(OsStr::new("MyFont")).to_str().unwrap_or("MyFont");
-            let mut style = String::new();
-            style.push_str("<style>@font-face{ font-family: ");
-            graphics.font_family = stem.to_string();
-            style.push_str(stem);
-            style.push_str("; src: url('");
-            style.push_str(font);
-            style.push_str("');}</style>");
-            if let Some(head) = document().head(){
-                head.append_html(&style)?;
-            }else{
-                document().body().expect("no html body!").append_html(&style)?;
+    //添加head
+    if let Some(head) = document().head(){
+        //获取icon文件路径和扩展名
+        let (icon_path, icon_type) = if let Some(icon) = settings.icon_path{
+            let icon_path = Path::new(icon);
+            let mut icon_type = "*";
+            if let Some(ext) = icon_path.extension(){    
+                if ext == "ico"{
+                    icon_type = "x-icon";
+                }else{
+                    icon_type = ext.to_str().unwrap_or("*");
+                }
             }
-            Ok(())
-        }(){
-            Ok(_) => (),
-            Err(err) => state.borrow_mut().handle_error(format!("font load error {:?}", err))
-        }
+            (icon_path.to_str().unwrap_or(""), icon_type)
+        }else { ("", "*") };
+
+        let (font_family, font_src) = if let Some(font) = settings.font_file{
+            ||->Result<(&str, &str), Box<std::error::Error>>{
+                let path = Path::new(font);
+                let stem = path.file_stem().unwrap_or(OsStr::new("MyFont")).to_str().unwrap_or("MyFont");
+                let mut style = String::new();
+                style.push_str("<style>@font-face{ font-family: ");
+                graphics.font_family = stem.to_string();
+                Ok((stem, font))
+            }().unwrap_or(("", ""))
+        }else{ ("", "")};
+        
+        let mut background_color = "".to_string();
+        if let Some(color) = settings.background_color{
+            background_color = format!("rgba({},{},{},{})", color[0], color[1], color[2], color[3] as f64/255.0);
+        };
+
+        let context = Context {
+            background_color: &background_color,
+            icon_type: icon_type,
+            icon_href: icon_path,
+            font_family,
+            font_src
+        };
+
+        match context.render(){
+            Ok(rendered) => {
+                let _ = head.append_html(&rendered);
+            }
+            Err(err) => log(format!("render error:{:?}", err)),
+        };
     }
 
     //init
     match ||->Result<(), Box<std::error::Error>>{
+        let window = window();
         let element = document().query_selector("#canvas")?;
         if element.is_none(){
             state.borrow_mut().handle_error("canvas is None!".to_string());
             return Ok(());
         }
         let canvas: CanvasElement = element.unwrap().try_into()?;
-        canvas.set_width(width as u32);
-        canvas.set_height(height as u32);
-        canvas.set_attribute("style", &format!("width:{}px;height:{}px", width, height))?;
+        log(format!("window.inner_width()={}, window.inner_height()={}", window.inner_width(), window.inner_height()));
+        canvas.set_width(window.inner_width() as u32);
+        canvas.set_height(window.inner_height() as u32);
+        canvas.set_attribute("style", &format!("width:{}px;height:{}px", window.inner_width(), window.inner_height()))?;
         document().set_title(title);
+
+        //随窗口更改canvas大小
+        window.add_event_listener(|_event:ResizeEvent|{
+            let canvas: CanvasElement = document().query_selector("#canvas").unwrap().unwrap().try_into().unwrap();
+            let window = stdweb::web::window();
+            canvas.set_width(window.inner_width() as u32);
+            canvas.set_height(window.inner_height() as u32);
+            let _ = canvas.set_attribute("style", &format!("width:{}px;height:{}px", window.inner_width(), window.inner_height()));
+        });
 
         // request_animation_frame
         let s_animation = state.clone();
-        let animation_fn = move ||{
+        let (auto_scale, draw_center) = (settings.auto_scale, settings.draw_center);
+        let background_color = settings.background_color;
+        let (tx_clone, ty_clone, sx_clone, sy_clone) = (trans_x.clone(), trans_y.clone(), scale_x.clone(), scale_y.clone());
+        let mut animation_fn = move |_timestamp|{
+            let (window_width, window_height) = (window.inner_width() as f64, window.inner_height() as f64);
             let mut state = s_animation.borrow_mut();
+                if let Some(color) = background_color{
+                    graphics.clear_rect(&color, 0., 0., window_width, window_height);
+                }
+                graphics.context.save();
+
+                let (mut new_width, mut new_height) = (width, height);
+                let (mut scale_x, mut scale_y)  = (1.0, 1.0);
+                if auto_scale{
+                    //画面不超过窗口高度
+                    new_height = window_height;
+                    new_width = new_height/height*width;
+
+                    if new_width>window_width{
+                        new_width = window_width;
+                        new_height = new_width/width*height;
+                    }
+                    scale_x = new_width/width;
+                    scale_y = new_height/height;
+                    graphics.context.scale(scale_x, scale_y);
+                    *sx_clone.borrow_mut() = scale_x;
+                    *sy_clone.borrow_mut() = scale_y;
+                }
+                if draw_center{
+                    let trans_x = (window_width-new_width)/2.;
+                    let trans_y = (window_height-new_height)/2.;
+                    graphics.context.translate(trans_x/scale_x, trans_y/scale_y);
+                    *tx_clone.borrow_mut() = trans_x;
+                    *ty_clone.borrow_mut() = trans_y;
+                }
+            
             if let Err(err) = state.draw(&mut graphics){
                 state.handle_error(format!("draw error {:?}", err));
             }
+            if draw_center{
+                graphics.context.restore();
+            }
+        };
+        animation_fn(0.0);
+
+        // update
+        let s_update = state.clone();
+        let mut timer = super::AnimationTimer::new(settings.ups as f64);
+        js!{setInterval(@{move ||{
+                if timer.ready_for_next_frame(){
+                    s_update.borrow_mut().update();
+                }
+            }}, 1);//频率最高220~230
         };
 
         js!{
             var animation_fn = @{animation_fn};
             window.request_animation_frame_fn = function(timestamp){
-                animation_fn();
+                animation_fn(timestamp);
                 requestAnimationFrame(window.request_animation_frame_fn);
             };
             requestAnimationFrame(window.request_animation_frame_fn);
         };
 
-        // update
-
-        let s_update = state.clone();
-        let update_fn = move ||{
-            s_update.borrow_mut().update();
-        };
-        update_fn();
-
-        let delay = (1000.0 / settings.ups as f64) as u32;
-        js!{
-            var delay = @{delay};
-            var update_callback = @{update_fn};
-            function game_update(){
-                update_callback();
-                setTimeout(game_update, delay);
-            }
-            setTimeout(game_update, 0);
-        };
-
         let s_mouse_move = state.clone();
+        let (tx_clone, ty_clone, sx_clone, sy_clone) = (trans_x.clone(), trans_y.clone(), scale_x.clone(), scale_y.clone());
         canvas.add_event_listener(move |event: PointerMoveEvent| {
-            s_mouse_move.borrow_mut().event(Event::MouseMove(event.offset_x(), event.offset_y()));
+            s_mouse_move.borrow_mut().event(Event::MouseMove(
+                (event.offset_x()-*tx_clone.borrow()) / *sx_clone.borrow(),
+                (event.offset_y()-*ty_clone.borrow()) / *sy_clone.borrow()
+            ));
         });
 
         let s_touch_move = state.clone();
+        let (tx_clone, ty_clone, sx_clone, sy_clone) = (trans_x.clone(), trans_y.clone(), scale_x.clone(), scale_y.clone());
         canvas.add_event_listener(move |event: TouchMove| {
             let touchs = event.target_touches();
             if touchs.len()>0{
-                s_touch_move.borrow_mut().event(Event::MouseMove(touchs[0].client_x(), touchs[0].client_y()));
+                s_touch_move.borrow_mut().event(Event::MouseMove(
+                    (touchs[0].client_x()-*tx_clone.borrow()) / *sx_clone.borrow(),
+                    (touchs[0].client_y()-*ty_clone.borrow()) / *sy_clone.borrow()
+                ));
             }
         });
 
         let s_click = state.clone();
+        let (tx_clone, ty_clone, sx_clone, sy_clone) = (trans_x.clone(), trans_y.clone(), scale_x.clone(), scale_y.clone());
         canvas.add_event_listener(move |event: ClickEvent| {
-            s_click.borrow_mut().event(Event::Click(event.offset_x(), event.offset_y()));
+            s_click.borrow_mut().event(Event::Click(
+                (event.offset_x()-*tx_clone.borrow()) / *sx_clone.borrow(),
+                (event.offset_y()-*ty_clone.borrow()) / *sy_clone.borrow()
+            ));
         });
         
         canvas.add_event_listener(move |_event: MouseDownEvent| {
@@ -243,7 +314,7 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
                 if (window.audioContext.state !== "running" && !window.audioContextResume) {
                     window.audioContext.resume();
                     window.audioContextResume = true;
-                    console.log("AudioContextResume.");
+                    // console.log("AudioContextResume.");
                 }
             };
         });
@@ -261,4 +332,18 @@ pub fn run<S:State>(title: &str, width:f64, height:f64, settings: Settings){
         Ok(_) => (),
         Err(err) => state.borrow_mut().handle_error(format!("init error {:?}", err))
     }
+}
+
+pub fn current_timestamp() -> f64{
+    use stdweb::unstable::TryInto;
+    js!(return performance.now();).try_into().unwrap()
+}
+
+pub fn random() -> f64{
+    use stdweb::unstable::TryInto;
+    return js!{return Math.random();}.try_into().unwrap();
+}
+
+pub fn log<T: std::fmt::Debug>(s:T){
+    console!(log, format!("{:?}", s));
 }
