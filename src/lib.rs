@@ -1,4 +1,4 @@
-#![recursion_limit="128"]
+#![recursion_limit = "128"]
 
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 #[macro_use]
@@ -18,14 +18,14 @@ mod web;
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 use web as window;
 
-pub use window::{play_sound, run, random, log, current_timestamp};
+pub use window::{current_timestamp, log, play_sound, random, run};
 
-pub trait ImageLoader{
-    fn load(&mut self, path:&str) -> Result<Rc<Image>, String>;
+pub trait ImageLoader {
+    fn load(&mut self, path: &str) -> Result<Rc<Image>, String>;
 }
 
-pub trait Graphics{
-    fn clear_rect(&mut self, color:&[u8; 4], x:f64, y:f64, width:f64, height:f64);
+pub trait Graphics {
+    fn clear_rect(&mut self, color: &[u8; 4], x: f64, y: f64, width: f64, height: f64);
     /// 绘制图片
     ///
     /// # Arguments
@@ -33,13 +33,18 @@ pub trait Graphics{
     /// * `image` Image
     /// * `src` Option<[x, y, w, h]>
     /// * `dest` Option<[x, y, w, h]>
-    /// 
+    ///
     /// # Example
     ///
     /// ```
     /// g.draw_image(&image, Some([0, 0, 100, 100]), Some([0, 0, 100, 100])).expect("error!");
     /// ```
-    fn draw_image(&mut self, image:&Image, src:Option<[f64; 4]>, dest:Option<[f64; 4]>) -> Result<(), String>;
+    fn draw_image(
+        &mut self,
+        image: &Image,
+        src: Option<[f64; 4]>,
+        dest: Option<[f64; 4]>,
+    ) -> Result<(), String>;
     /// 绘制文字
     ///
     /// # Arguments
@@ -53,21 +58,28 @@ pub trait Graphics{
     /// ```
     /// g.draw_text("Hello!", 0., 20., &[255, 0, 0, 255], 16).expect("text draw failed.");
     /// ```
-    fn draw_text(&mut self, cotnent:&str, x:f64, y:f64, color:&[u8; 4], font_size:u32) -> Result<(), String>;
+    fn draw_text(
+        &mut self,
+        cotnent: &str,
+        x: f64,
+        y: f64,
+        color: &[u8; 4],
+        font_size: u32,
+    ) -> Result<(), String>;
 }
 
 #[derive(Debug)]
-pub enum Event{
+pub enum Event {
     MouseMove(f64, f64),
     Click(f64, f64),
-    KeyPress(String)
+    KeyPress(String),
 }
 
-pub trait State: 'static{
-    fn new(image_loader:&mut ImageLoader) -> Self;
-    fn update(&mut self){}
-    fn event(&mut self, _event:Event){}
-    fn draw(&mut self, _graphics:&mut Graphics) -> Result<(), String>{
+pub trait State: 'static {
+    fn new(image_loader: &mut ImageLoader) -> Self;
+    fn update(&mut self) {}
+    fn event(&mut self, _event: Event) {}
+    fn draw(&mut self, _graphics: &mut Graphics) -> Result<(), String> {
         Ok(())
     }
     #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
@@ -80,7 +92,7 @@ pub trait State: 'static{
     }
 }
 
-pub trait Image{
+pub trait Image {
     fn width(&self) -> u32;
     fn height(&self) -> u32;
     fn as_any(&self) -> &dyn Any;
@@ -101,7 +113,7 @@ impl AnimationTimer {
         }
     }
 
-    pub fn reset(&mut self){
+    pub fn reset(&mut self) {
         self.next_time = current_timestamp();
     }
 
@@ -117,20 +129,17 @@ impl AnimationTimer {
     }
 }
 
-pub struct SubImage{
+pub struct SubImage {
     image: Rc<Image>,
     region: [f64; 4],
 }
 
 impl SubImage {
-    pub fn new(image: Rc<Image>, region: [f64; 4]) -> SubImage{
-        SubImage {
-            image,
-            region
-        }
+    pub fn new(image: Rc<Image>, region: [f64; 4]) -> SubImage {
+        SubImage { image, region }
     }
 
-    pub fn draw(&self, g:&mut Graphics, dest:[f64; 4]) -> Result<(), String>{
+    pub fn draw(&self, g: &mut Graphics, dest: [f64; 4]) -> Result<(), String> {
         g.draw_image(self.image.as_ref(), Some(self.region), Some(dest))
     }
 }
@@ -144,11 +153,11 @@ pub struct Animation {
     repeat: bool,
     active: bool,
     end: bool, //current == frames.len()
-    pub position: Option<[f64; 4]>
+    pub position: Option<[f64; 4]>,
 }
 
 impl Animation {
-    pub fn new(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: f64) -> Animation{
+    pub fn new(image: Rc<Image>, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
         Animation {
             timer: AnimationTimer::new(fps),
             image,
@@ -157,64 +166,64 @@ impl Animation {
             repeat: false,
             active: false,
             end: false,
-            position: None
+            position: None,
         }
     }
 
-    pub fn active(image: Rc<Image>, frames:Vec<[f64; 4]>, fps: f64) -> Animation{
+    pub fn active(image: Rc<Image>, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
         let mut anim = Self::new(image, frames, fps);
         anim.start();
         anim
     }
 
-    pub fn frame_width(&self) -> f64{
-        if self.frames.len() == 0{
+    pub fn frame_width(&self) -> f64 {
+        if self.frames.len() == 0 {
             0.0
-        }else{
+        } else {
             self.frames[0][2]
         }
     }
 
-    pub fn frame_height(&self) -> f64{
-        if self.frames.len() == 0{
+    pub fn frame_height(&self) -> f64 {
+        if self.frames.len() == 0 {
             0.0
-        }else{
+        } else {
             self.frames[0][3]
         }
     }
 
-    pub fn is_active(&self) -> bool{
+    pub fn is_active(&self) -> bool {
         self.active
     }
 
-    pub fn set_repeat(&mut self, repeat: bool){
+    pub fn set_repeat(&mut self, repeat: bool) {
         self.repeat = repeat;
     }
 
-    pub fn start(&mut self){
+    pub fn start(&mut self) {
         self.active = true;
         self.current = -1;
         self.timer.reset();
     }
 
-    pub fn stop(&mut self){
+    pub fn stop(&mut self) {
         self.active = false;
     }
 
-    pub fn is_end(&self) -> bool{
+    pub fn is_end(&self) -> bool {
         self.current == self.frames.len() as i32
     }
 
     /// Tick the animation forward by one step
-    pub fn update(&mut self) -> bool{
+    pub fn update(&mut self) -> bool {
         let mut jump = false;
-        if self.active{
-            if self.timer.ready_for_next_frame(){
+        if self.active {
+            if self.timer.ready_for_next_frame() {
                 self.current += 1;
-                if self.current == self.frames.len() as i32{
-                    if self.repeat{
+                if self.current == self.frames.len() as i32 {
+                    if self.repeat {
                         self.current = 0;
-                    }else{
+                    } else {
                         self.active = false;
                     }
                 }
@@ -224,74 +233,84 @@ impl Animation {
         jump
     }
 
-    pub fn draw(&self, g:&mut Graphics, dest:[f64; 4]) -> Result<(), String>{
+    pub fn draw(&self, g: &mut Graphics, dest: [f64; 4]) -> Result<(), String> {
         let mut current = 0;
-        if self.current > 0{
-            current = if self.current==self.frames.len() as i32{
-                self.frames.len() as i32-1
-            }else{
+        if self.current > 0 {
+            current = if self.current == self.frames.len() as i32 {
+                self.frames.len() as i32 - 1
+            } else {
                 self.current
-            };   
+            };
         }
-        g.draw_image(self.image.as_ref(), Some(self.frames[current as usize]), Some(dest))
+        g.draw_image(
+            self.image.as_ref(),
+            Some(self.frames[current as usize]),
+            Some(dest),
+        )
     }
 }
 
-use std::ops::{Sub, Add, AddAssign, SubAssign};
 use std::cmp::PartialOrd;
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 #[derive(Clone, Debug)]
-pub struct Rect<T: PartialOrd+Add+Sub+AddAssign+SubAssign+Copy+Default> {
+pub struct Rect<T: PartialOrd + Add + Sub + AddAssign + SubAssign + Copy + Default> {
     pub pos: Point<T>,
-    pub size: Size<T>
+    pub size: Size<T>,
 }
 
-impl <T: PartialOrd+Add<Output = T>+Sub<Output = T>+AddAssign+SubAssign+Copy+Default> Default for Rect<T> {
+impl<
+        T: PartialOrd + Add<Output = T> + Sub<Output = T> + AddAssign + SubAssign + Copy + Default,
+    > Default for Rect<T>
+{
     fn default() -> Self {
-        Rect{
+        Rect {
             pos: Point::default(),
-            size: Size::default()
+            size: Size::default(),
         }
     }
 }
 
-impl <T: PartialOrd+Add<Output = T>+Sub<Output = T>+AddAssign+SubAssign+Copy+Default> Rect<T> {
+impl<
+        T: PartialOrd + Add<Output = T> + Sub<Output = T> + AddAssign + SubAssign + Copy + Default,
+    > Rect<T>
+{
     pub fn new(x: T, y: T, width: T, height: T) -> Rect<T> {
         Rect {
             pos: Point::new(x, y),
-            size: Size::new(width, height)
+            size: Size::new(width, height),
         }
     }
 
-    pub fn left(&self) -> T{
+    pub fn left(&self) -> T {
         self.pos.x
     }
 
-    pub fn top(&self) -> T{
+    pub fn top(&self) -> T {
         self.pos.y
     }
 
-    pub fn right(&self) -> T{
-        self.pos.x+self.size.width
+    pub fn right(&self) -> T {
+        self.pos.x + self.size.width
     }
 
-    pub fn bottom(&self) -> T{
-        self.pos.y+self.size.height
+    pub fn bottom(&self) -> T {
+        self.pos.y + self.size.height
     }
 
-    pub fn width(&self) -> T{
+    pub fn width(&self) -> T {
         self.size.width
     }
 
-    pub fn height(&self) -> T{
+    pub fn height(&self) -> T {
         self.size.height
     }
 
     pub fn inflate(&mut self, dx: T, dy: T) {
         self.pos.x -= dx;
-        self.size.width += dx+dx;
+        self.size.width += dx + dx;
         self.pos.y -= dy;
-        self.size.height += dy+dy;
+        self.size.height += dy + dy;
     }
 
     pub fn offset(&mut self, dx: T, dy: T) {
@@ -299,7 +318,7 @@ impl <T: PartialOrd+Add<Output = T>+Sub<Output = T>+AddAssign+SubAssign+Copy+Def
         self.pos.y -= dy;
     }
 
-    pub fn move_to(&mut self, x: T, y:T){
+    pub fn move_to(&mut self, x: T, y: T) {
         self.pos.x = x;
         self.pos.y = y;
     }
@@ -308,50 +327,50 @@ impl <T: PartialOrd+Add<Output = T>+Sub<Output = T>+AddAssign+SubAssign+Copy+Def
         x >= self.pos.x && x <= self.right() && y >= self.pos.y && y <= self.bottom()
     }
 
-    pub fn to_slice(&self) -> [T;4]{
+    pub fn to_slice(&self) -> [T; 4] {
         [self.pos.x, self.pos.y, self.size.width, self.size.height]
     }
 }
 
 #[derive(Clone, Debug, Copy)]
-pub struct Point<T:Default> {
+pub struct Point<T: Default> {
     pub x: T,
     pub y: T,
 }
 
-impl <T:Default> Point<T> {
-    pub fn new(x: T, y:T) -> Point<T>{
-        Point{x, y}
+impl<T: Default> Point<T> {
+    pub fn new(x: T, y: T) -> Point<T> {
+        Point { x, y }
     }
 }
 
-impl <T:Default> Default for Point<T> {
+impl<T: Default> Default for Point<T> {
     fn default() -> Self {
-        Point{
+        Point {
             x: T::default(),
-            y: T::default()
+            y: T::default(),
         }
-     }
+    }
 }
 
 #[derive(Clone, Debug, Copy)]
-pub struct Size<T:Default> {
+pub struct Size<T: Default> {
     pub width: T,
     pub height: T,
 }
 
-impl <T:Default> Default for Size<T> {
+impl<T: Default> Default for Size<T> {
     fn default() -> Self {
-        Size{
+        Size {
             width: T::default(),
-            height: T::default()
+            height: T::default(),
         }
-     }
+    }
 }
 
-impl <T:Default> Size<T> {
-    pub fn new(width: T, height:T) -> Size<T>{
-        Size{width, height}
+impl<T: Default> Size<T> {
+    pub fn new(width: T, height: T) -> Size<T> {
+        Size { width, height }
     }
 }
 
@@ -399,99 +418,100 @@ impl Default for Settings {
     }
 }
 
-pub enum AudioType{
+pub enum AudioType {
     WAV,
     MP3,
     OGG,
-    FLAC
+    FLAC,
 }
 
-pub struct AssetsFile{
+pub struct AssetsFile {
     file_name: String,
     data: Option<Vec<u8>>,
-    tmp_data: Arc<Mutex<Option<Vec<u8>>>>
+    tmp_data: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
-impl AssetsFile{
-    pub fn new(file_name: &str) -> AssetsFile{
-        AssetsFile{
+impl AssetsFile {
+    pub fn new(file_name: &str) -> AssetsFile {
+        AssetsFile {
             file_name: file_name.to_string(),
             data: None,
             tmp_data: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn load(&mut self){
+    pub fn load(&mut self) {
         #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
         {
-            use stdweb::web::XmlHttpRequest;
-            use stdweb::web::XhrResponseType;
+            use stdweb::unstable::TryInto;
             use stdweb::web::event::ReadyStateChangeEvent;
+            use stdweb::web::ArrayBuffer;
             use stdweb::web::IEventTarget;
             use stdweb::web::XhrReadyState;
-            use stdweb::unstable::TryInto;
-            use stdweb::web::ArrayBuffer;
-            
+            use stdweb::web::XhrResponseType;
+            use stdweb::web::XmlHttpRequest;
+
             let data_clone = self.tmp_data.clone();
 
             let req = XmlHttpRequest::new();
-            match req.open("GET", &self.file_name){
+            match req.open("GET", &self.file_name) {
                 Ok(_) => (),
-                Err(err) => eprintln!("{:?}", err)
+                Err(err) => eprintln!("{:?}", err),
             };
-            if let Err(err) = req.set_response_type(XhrResponseType::ArrayBuffer){
+            if let Err(err) = req.set_response_type(XhrResponseType::ArrayBuffer) {
                 eprintln!("{:?}", err);
             }
 
-            req.add_event_listener(move |event: ReadyStateChangeEvent|{
-                let req:XmlHttpRequest = js!{return @{event}.target}.try_into().unwrap();
-                if req.ready_state() == XhrReadyState::Done{
-                    if req.status() == 200{
-                        let array_buffer:ArrayBuffer = req.raw_response().try_into().unwrap();
-                        let contents:Vec<u8> = Vec::from(array_buffer);
-                        if let Ok(mut data) = data_clone.lock(){
+            req.add_event_listener(move |event: ReadyStateChangeEvent| {
+                let req: XmlHttpRequest = js! {return @{event}.target}.try_into().unwrap();
+                if req.ready_state() == XhrReadyState::Done {
+                    if req.status() == 200 {
+                        let array_buffer: ArrayBuffer = req.raw_response().try_into().unwrap();
+                        let contents: Vec<u8> = Vec::from(array_buffer);
+                        if let Ok(mut data) = data_clone.lock() {
                             *data = Some(contents);
                         }
                     }
                 }
             });
-            match req.send(){
+            match req.send() {
                 Ok(_) => (),
-                Err(err) => println!("{:?}", err)
+                Err(err) => println!("{:?}", err),
             };
         }
 
-        #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]{
-            use std::thread;
+        #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
+        {
             use std::fs::File;
             use std::io::Read;
+            use std::thread;
             let data_clone = self.tmp_data.clone();
             let file_name = self.file_name.clone();
             thread::spawn(move || {
-                let file_name = "./static/".to_owned()+&file_name;
-                match File::open(file_name){
+                let file_name = "./static/".to_owned() + &file_name;
+                match File::open(file_name) {
                     Ok(mut file) => {
                         let mut contents = vec![];
-                        match file.read_to_end(&mut contents){
+                        match file.read_to_end(&mut contents) {
                             Ok(_) => {
-                                match data_clone.lock(){
+                                match data_clone.lock() {
                                     Ok(mut data) => *data = Some(contents),
-                                    Err(err) => eprintln!("{:?}", err)
+                                    Err(err) => eprintln!("{:?}", err),
                                 };
-                            },
-                            Err(err) => eprintln!("{:?}", err)
+                            }
+                            Err(err) => eprintln!("{:?}", err),
                         };
-                    },
-                    Err(err) => eprintln!("{:?}", err)
+                    }
+                    Err(err) => eprintln!("{:?}", err),
                 };
             });
         }
     }
 
-    pub fn data(&mut self) -> Option<&Vec<u8>>{
-        if self.data == None{
-            if let Ok(mut tmp_data) = self.tmp_data.try_lock(){
-                if tmp_data.is_some(){
+    pub fn data(&mut self) -> Option<&Vec<u8>> {
+        if self.data == None {
+            if let Ok(mut tmp_data) = self.tmp_data.try_lock() {
+                if tmp_data.is_some() {
                     //移出加载的临时文件数据
                     self.data = tmp_data.take();
                 }
