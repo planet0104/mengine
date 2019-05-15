@@ -157,6 +157,16 @@ pub fn play_sound(data: &[u8], _t: AudioType) {
 }
 
 pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
+    let is_weixin:bool = js!{
+        //判断微信
+        var ua = navigator.userAgent.toLowerCase();
+        if(ua.match(/MicroMessenger/i)=="micromessenger") {
+            //微信内置浏览器不用setTimeout和setInterval因为限制为30帧
+            return true;
+        } else {
+            return false;
+        }
+    }.try_into().unwrap();
     document()
         .body()
         .expect("no html body!!")
@@ -304,6 +314,9 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             );
         });
 
+        let s_update = state.clone();
+        let mut timer = super::AnimationTimer::new(settings.ups as f64);
+
         // request_animation_frame
         let s_animation = state.clone();
         let (auto_scale, draw_center) = (settings.auto_scale, settings.draw_center);
@@ -315,6 +328,12 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             scale_y.clone(),
         );
         let mut animation_fn = move |_timestamp| {
+            //微信内置浏览器在request_animation_frame中运行以提高更新频率
+            if is_weixin{
+                if timer.ready_for_next_frame(){
+                    s_update.borrow_mut().update();
+                }
+            }
             let (window_width, window_height) =
                 (window.inner_width() as f64, window.inner_height() as f64);
             let mut state = s_animation.borrow_mut();
@@ -358,16 +377,26 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             }
         };
         animation_fn(0.0);
-
+        
         // update
-        let s_update = state.clone();
-        let mut timer = super::AnimationTimer::new(settings.ups as f64);
-        js! {setInterval(@{move ||{
-                if timer.ready_for_next_frame(){
-                    s_update.borrow_mut().update();
-                }
-            }}, 1);//频率最高220~230
-        };
+        if !is_weixin{
+            let s_update = state.clone();
+            let mut timer = super::AnimationTimer::new(settings.ups as f64);
+            js! {
+                var updatefn = @{move ||{
+                    if timer.ready_for_next_frame(){
+                        s_update.borrow_mut().update();
+                    }
+                }};
+                var u =  function(){
+                    updatefn();
+                    setTimeout(u, 1);
+                };
+                setTimeout(u, 1);
+                //setInterval(updatefn, 1);
+                //setTimeout 或 setInterval 频率最高220~230
+            };
+        }
 
         js! {
             var animation_fn = @{animation_fn};
