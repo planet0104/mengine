@@ -271,11 +271,6 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             return Ok(());
         }
         let canvas: CanvasElement = element.unwrap().try_into()?;
-        log(format!(
-            "window.inner_width()={}, window.inner_height()={}",
-            window.inner_width(),
-            window.inner_height()
-        ));
         canvas.set_width(window.inner_width() as u32);
         canvas.set_height(window.inner_height() as u32);
         canvas.set_attribute(
