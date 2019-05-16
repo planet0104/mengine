@@ -37,11 +37,11 @@ struct WebImage {
     image: ImageElement,
 }
 impl Image for WebImage {
-    fn width(&self) -> u32 {
-        self.image.width()
+    fn width(&self) -> f64 {
+        self.image.width() as f64
     }
-    fn height(&self) -> u32 {
-        self.image.height()
+    fn height(&self) -> f64 {
+        self.image.height() as f64
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -139,21 +139,23 @@ impl Graphics for HTMLGraphics {
     }
 }
 
-pub fn play_sound(data: &[u8], _t: AudioType) {
-    js! {
-        let bytes = new Uint8Array(@{data}).buffer;
-        var audioCtx = window.audioContext;
-        audioCtx.decodeAudioData(bytes, function(buffer){
-            try{
-                var source = audioCtx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(audioCtx.destination);
-                source.start(0);
-            }catch(e){
-                console.log(e);
-            }
-        });
-    };
+pub fn play_sound(assets: &mut super::AssetsFile, _t: AudioType) {
+    if let Some(data) = assets.data(){
+        js! {
+            let bytes = new Uint8Array(@{data}).buffer;
+            var audioCtx = window.audioContext;
+            audioCtx.decodeAudioData(bytes, function(buffer){
+                try{
+                    var source = audioCtx.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(audioCtx.destination);
+                    source.start(0);
+                }catch(e){
+                    console.log(e);
+                }
+            });
+        };
+    }
 }
 
 pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
@@ -170,7 +172,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
     document()
         .body()
         .expect("no html body!!")
-        .append_html("<canvas id=\"canvas\"></canvas>")
+        .append_html("<canvas id=\"canvas\"></canvas><audio id=\"backgroundAudio\"></audio>")
         .expect("append canvas fail!!");
 
     let canvas: CanvasElement = document()
@@ -202,7 +204,6 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
     struct Context<'a> {
         icon_type: &'a str,
         icon_href: &'a str,
-        background_color: &'a str,
         font_family: &'a str,
         font_src: &'a str,
     }
@@ -243,19 +244,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             ("", "")
         };
 
-        let mut background_color = "".to_string();
-        if let Some(color) = settings.background_color {
-            background_color = format!(
-                "rgba({},{},{},{})",
-                color[0],
-                color[1],
-                color[2],
-                color[3] as f64 / 255.0
-            );
-        };
-
         let context = Context {
-            background_color: &background_color,
             icon_type: icon_type,
             icon_href: icon_path,
             font_family,
@@ -320,7 +309,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         // request_animation_frame
         let s_animation = state.clone();
         let (auto_scale, draw_center) = (settings.auto_scale, settings.draw_center);
-        let background_color = settings.background_color;
+        let background_color = settings.background_color.unwrap_or([0, 0, 0, 255]);
         let (tx_clone, ty_clone, sx_clone, sy_clone) = (
             trans_x.clone(),
             trans_y.clone(),
@@ -337,9 +326,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             let (window_width, window_height) =
                 (window.inner_width() as f64, window.inner_height() as f64);
             let mut state = s_animation.borrow_mut();
-            if let Some(color) = background_color {
-                graphics.clear_rect(&color, 0., 0., window_width, window_height);
-            }
+            graphics.clear_rect(&background_color, 0., 0., window_width, window_height);
             graphics.context.save();
 
             let (mut new_width, mut new_height) = (width, height);
@@ -493,4 +480,29 @@ pub fn random() -> f64 {
 
 pub fn log<T: std::fmt::Debug>(s: T) {
     console!(log, format!("{:?}", s));
+}
+
+pub fn play_music(file:&str, repeat: bool){
+    js!{
+        var url = @{file};
+        var repeat = @{repeat};
+        var audio = document.getElementById("backgroundAudio");
+        if(audio.src == url){
+            if(audio.networkState == 1){
+                audio.play();
+            }
+        }else{
+            audio.src = url;
+            audio.play();
+            audio.loop = repeat;
+            audio.preload = true;
+        }
+    };
+}
+
+pub fn stop_music(){
+    js!{
+        var audio = document.getElementById("backgroundAudio");
+        audio.pause();
+    };
 }

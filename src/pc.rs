@@ -11,6 +11,12 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use winit::Icon;
+use std::fs::File;
+use std::io::BufReader;
+use rodio::Source;
+use std::thread;
+use std::io::Cursor;
+use std::time::Duration;
 
 struct TextureLoader<'a> {
     window: &'a mut PistonWindow,
@@ -25,23 +31,23 @@ impl<'a> ImageLoader for TextureLoader<'a> {
             &TextureSettings::new(),
         )?;
         Ok(Rc::new(PcImage {
-            width: texture.get_width(),
-            height: texture.get_height(),
+            width: texture.get_width() as f64,
+            height: texture.get_height() as f64,
             texture,
         }))
     }
 }
 
 struct PcImage {
-    width: u32,
-    height: u32,
+    width: f64,
+    height: f64,
     texture: gfx_texture::Texture<gfx_device_gl::Resources>,
 }
 impl Image for PcImage {
-    fn width(&self) -> u32 {
+    fn width(&self) -> f64 {
         self.width
     }
-    fn height(&self) -> u32 {
+    fn height(&self) -> f64 {
         self.height
     }
     fn as_any(&self) -> &dyn Any {
@@ -132,25 +138,25 @@ impl<'a, 'b> Graphics for PistonGraphics<'a, 'b> {
 }
 
 /// 启动线程播放声音
-pub fn play_sound(data: &[u8], _t: AudioType) {
-    use std::thread;
-    let data = data.to_vec();
-    thread::spawn(move || {
-        use std::io::Cursor;
-        let device = rodio::default_output_device();
-        if device.is_none() {
-            eprintln!("no default output device.");
-            return;
-        }
-        let sink = rodio::Sink::new(&device.unwrap());
-        let decoder = rodio::Decoder::new(Cursor::new(data.to_vec()));
-        if decoder.is_err() {
-            eprintln!("{:?}", decoder.err());
-            return;
-        }
-        sink.append(decoder.unwrap());
-        sink.sleep_until_end();
-    });
+pub fn play_sound(assets: &mut super::AssetsFile, _t: AudioType) {
+    if let Some(data) = assets.data(){
+        let data = data.to_vec();
+        thread::spawn(move || {
+            let device = rodio::default_output_device();
+            if device.is_none() {
+                eprintln!("no default output device.");
+                return;
+            }
+            let sink = rodio::Sink::new(&device.unwrap());
+            let decoder = rodio::Decoder::new(Cursor::new(data.to_vec()));
+            if decoder.is_err() {
+                eprintln!("{:?}", decoder.err());
+                return;
+            }
+            sink.append(decoder.unwrap());
+            sink.sleep_until_end();
+        });
+    }
 }
 
 pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
@@ -191,7 +197,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
 
     let mut mouse_pos = [0.0; 2];
 
-    let background_color = settings.background_color;
+    let background_color = settings.background_color.unwrap_or([0, 0, 0, 255]);
     let draw_center = settings.draw_center;
     let auto_scale = settings.auto_scale;
     let mut scale_x = 1.0;
@@ -204,20 +210,18 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             state.update();
         });
         window.draw_2d(&event, |context, graphics| {
-            if let Some(bc) = background_color {
-                //填充背景
-                rectangle(
-                    [
-                        bc[0] as f32 / 255.0,
-                        bc[1] as f32 / 255.0,
-                        bc[2] as f32 / 255.0,
-                        bc[3] as f32 / 255.0,
-                    ],
-                    [0., 0., widnow_size.width, widnow_size.height],
-                    context.transform,
-                    graphics,
-                );
-            }
+            //填充背景
+            rectangle(
+                [
+                    background_color[0] as f32 / 255.0,
+                    background_color[1] as f32 / 255.0,
+                    background_color[2] as f32 / 255.0,
+                    background_color[3] as f32 / 255.0,
+                ],
+                [0., 0., widnow_size.width, widnow_size.height],
+                context.transform,
+                graphics,
+            );
             let (mut new_width, mut new_height) = (width, height);
             let c = if auto_scale {
                 //画面不超过窗口高度
@@ -320,4 +324,35 @@ pub fn random() -> f64 {
 
 pub fn log<T: std::fmt::Debug>(s: T) {
     println!("{:?}", s);
+}
+
+thread_local!{
+    static PLAYING_BACKGROUND: RefCell<bool> = RefCell::new(false);
+}
+
+pub fn play_music(file:&str, repeat: bool){
+    let device = rodio::default_output_device().unwrap();
+    let path = "./static/".to_owned() + file;
+    let file = File::open(path).unwrap();
+    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+    if repeat{
+        let stopable = source.repeat_infinite().convert_samples().stoppable()
+        .periodic_access(Duration::from_millis(100), move |src| {
+            if !PLAYING_BACKGROUND.with(|p| *p.borrow()){
+                src.stop();
+            }
+        });
+        rodio::play_raw(&device, stopable);
+    }else{
+        rodio::play_raw(&device, source.convert_samples().stoppable());
+    }
+    PLAYING_BACKGROUND.with(|p|{
+        *p.borrow_mut() = true;
+    });
+}
+
+pub fn stop_music(){
+    PLAYING_BACKGROUND.with(|p|{
+        *p.borrow_mut() = false;
+    });
 }

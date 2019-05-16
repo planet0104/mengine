@@ -18,7 +18,9 @@ mod web;
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 use web as window;
 
-pub use window::{current_timestamp, log, play_sound, random, run};
+pub mod engine;
+
+pub use window::{play_music, stop_music, current_timestamp, log, play_sound, random, run};
 
 pub trait ImageLoader {
     fn load(&mut self, path: &str) -> Result<Rc<Image>, String>;
@@ -52,6 +54,7 @@ pub trait Graphics {
     /// * `content`
     /// * `x`
     /// * `y`
+    /// * `color` &[u8; 4]
     /// * `font_size` 字体 单位pt
     /// # Example
     ///
@@ -93,8 +96,8 @@ pub trait State: 'static {
 }
 
 pub trait Image {
-    fn width(&self) -> u32;
-    fn height(&self) -> u32;
+    fn width(&self) -> f64;
+    fn height(&self) -> f64;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -198,6 +201,10 @@ impl Animation {
 
     pub fn set_repeat(&mut self, repeat: bool) {
         self.repeat = repeat;
+    }
+
+    pub fn is_repeat(&mut self) -> bool {
+        self.repeat
     }
 
     pub fn start(&mut self) {
@@ -519,4 +526,9 @@ impl AssetsFile {
         }
         self.data.as_ref()
     }
+}
+
+//生成指定范围的随即整数
+pub fn rand_int(l:i32, b:i32)->i32{
+    ((random()*(b as f64 - l as f64 + 1.0)).floor()+l as f64) as i32
 }
