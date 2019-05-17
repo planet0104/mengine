@@ -794,10 +794,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "mengine"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "askama 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gfx_device_gl 0.15.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "image 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston-gfx_texture 0.35.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston_window 0.89.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",

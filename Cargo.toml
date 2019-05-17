@@ -1,10 +1,14 @@
 [package]
 name = "mengine"
-version = "0.5.2"
+version = "0.6.0"
 authors = ["planet0104 <planet0104@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+
+[dependencies.image]
+version = "0.21.1"
+default-features = false
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser"] }

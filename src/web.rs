@@ -5,33 +5,23 @@ use stdweb::traits::*;
 use stdweb::unstable::TryInto;
 use stdweb::web::html_element::ImageElement;
 use stdweb::web::IElement;
-use stdweb::web::{document, window, CanvasRenderingContext2d};
+use stdweb::web::{document, CanvasRenderingContext2d};
 
-use super::{AudioType, Event, Graphics, Image, ImageLoader, Settings, State};
+use super::{AnimationTimer, Graphics, AudioType, Event, Window, Image, Settings, State, Transform};
 use std::any::Any;
 use std::cell::RefCell;
 use stdweb::web::event::{
     // KeyPressEvent,
     ClickEvent,
-    // KeyUpEvent,
     ITouchEvent,
     KeyDownEvent,
+    KeyUpEvent,
     MouseDownEvent,
     PointerMoveEvent,
     ResizeEvent,
     TouchMove,
 };
 use stdweb::web::html_element::CanvasElement;
-
-struct WebImageLoader {}
-impl ImageLoader for WebImageLoader {
-    fn load(&mut self, path: &str) -> Result<Rc<Image>, String> {
-        let image = ImageElement::new();
-        let web_image = Rc::new(WebImage { image });
-        web_image.image.set_src(path);
-        Ok(web_image)
-    }
-}
 
 struct WebImage {
     image: ImageElement,
@@ -48,12 +38,39 @@ impl Image for WebImage {
     }
 }
 
-struct HTMLGraphics {
+struct BrowserWindow{
+    timer: AnimationTimer,
+}
+impl Window for BrowserWindow{
+    fn set_update_rate(&mut self, ups: u64){
+        self.timer.set_fps(ups as f64);
+    }
+
+    fn load_image(&mut self, path: &str) -> Result<Rc<Image>, String> {
+        let image = ImageElement::new();
+        let web_image = Rc::new(WebImage { image });
+        web_image.image.set_src(path);
+        Ok(web_image)
+    }
+}
+
+struct BrowserGraphics {
     font_family: String,
     context: CanvasRenderingContext2d,
 }
 
-impl Graphics for HTMLGraphics {
+impl BrowserGraphics {
+    fn transform(&self, transform: Option<Transform>) {
+        self.context.save();
+        if let Some(transform) = transform {
+            self.context
+                .translate(transform.translate.0, transform.translate.1);
+            self.context.rotate(transform.rotate);
+        }
+    }
+}
+
+impl Graphics for BrowserGraphics {
     fn clear_rect(&mut self, color: &[u8; 4], x: f64, y: f64, width: f64, height: f64) {
         self.context.set_fill_style_color(&format!(
             "rgba({},{},{},{})",
@@ -64,13 +81,16 @@ impl Graphics for HTMLGraphics {
 
     fn draw_image(
         &mut self,
+        transform: Option<Transform>,
         image: &Image,
         src: Option<[f64; 4]>,
         dest: Option<[f64; 4]>,
     ) -> Result<(), String> {
         match image.as_any().downcast_ref::<WebImage>() {
             Some(image) => {
-                match if src.is_none() && dest.is_none() {
+                self.transform(transform);
+
+                let ret = match if src.is_none() && dest.is_none() {
                     self.context.draw_image(image.image.clone(), 0., 0.)
                 } else if src.is_none() && dest.is_some() {
                     let dest = dest.unwrap();
@@ -111,7 +131,9 @@ impl Graphics for HTMLGraphics {
                 } {
                     Err(err) => Err(format!("{:?}", err)),
                     Ok(_) => Ok(()),
-                }
+                };
+                self.context.restore();
+                ret
             }
             None => Err("Image downcast PcImage Error!".to_string()),
         }
@@ -119,12 +141,14 @@ impl Graphics for HTMLGraphics {
 
     fn draw_text(
         &mut self,
+        transform: Option<Transform>,
         cotnent: &str,
         x: f64,
         y: f64,
         color: &[u8; 4],
         font_size: u32,
     ) -> Result<(), String> {
+        self.transform(transform);
         self.context.set_fill_style_color(&format!(
             "rgba({},{},{},{})",
             color[0],
@@ -135,12 +159,13 @@ impl Graphics for HTMLGraphics {
         self.context
             .set_font(&format!("{}px {}", font_size, self.font_family));
         self.context.fill_text(cotnent, x, y, None);
+        self.context.restore();
         Ok(())
     }
 }
 
 pub fn play_sound(assets: &mut super::AssetsFile, _t: AudioType) {
-    if let Some(data) = assets.data(){
+    if let Some(data) = assets.data() {
         js! {
             let bytes = new Uint8Array(@{data}).buffer;
             var audioCtx = window.audioContext;
@@ -159,7 +184,7 @@ pub fn play_sound(assets: &mut super::AssetsFile, _t: AudioType) {
 }
 
 pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
-    let is_weixin:bool = js!{
+    let is_weixin: bool = js! {
         //判断微信
         var ua = navigator.userAgent.toLowerCase();
         if(ua.match(/MicroMessenger/i)=="micromessenger") {
@@ -168,7 +193,9 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         } else {
             return false;
         }
-    }.try_into().unwrap();
+    }
+    .try_into()
+    .unwrap();
     document()
         .body()
         .expect("no html body!!")
@@ -181,12 +208,17 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         .unwrap()
         .try_into()
         .unwrap();
-    let mut graphics = HTMLGraphics {
+
+    let window = Rc::new(RefCell::new(BrowserWindow {
+        timer: AnimationTimer::new(settings.ups as f64),
+    }));
+
+    let mut graphics = BrowserGraphics {
         font_family: "Arial".to_string(),
         context: canvas.get_context().unwrap(),
     };
 
-    let state = Rc::new(RefCell::new(S::new(&mut WebImageLoader {})));
+    let state = Rc::new(RefCell::new(S::new(&mut *window.borrow_mut())));
     let (trans_x, trans_y) = (Rc::new(RefCell::new(0.0)), Rc::new(RefCell::new(0.0)));
     let (scale_x, scale_y) = (Rc::new(RefCell::new(1.0)), Rc::new(RefCell::new(1.0)));
 
@@ -261,7 +293,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
 
     //init
     match || -> Result<(), Box<std::error::Error>> {
-        let window = window();
+        let webwindow = stdweb::web::window();
         let element = document().query_selector("#canvas")?;
         if element.is_none() {
             state
@@ -270,20 +302,20 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             return Ok(());
         }
         let canvas: CanvasElement = element.unwrap().try_into()?;
-        canvas.set_width(window.inner_width() as u32);
-        canvas.set_height(window.inner_height() as u32);
+        canvas.set_width(webwindow.inner_width() as u32);
+        canvas.set_height(webwindow.inner_height() as u32);
         canvas.set_attribute(
             "style",
             &format!(
                 "width:{}px;height:{}px",
-                window.inner_width(),
-                window.inner_height()
+                webwindow.inner_width(),
+                webwindow.inner_height()
             ),
         )?;
         document().set_title(title);
 
         //随窗口更改canvas大小
-        window.add_event_listener(|_event: ResizeEvent| {
+        webwindow.add_event_listener(|_event: ResizeEvent| {
             let canvas: CanvasElement = document()
                 .query_selector("#canvas")
                 .unwrap()
@@ -304,8 +336,6 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         });
 
         let s_update = state.clone();
-        let mut timer = super::AnimationTimer::new(settings.ups as f64);
-
         // request_animation_frame
         let s_animation = state.clone();
         let (auto_scale, draw_center) = (settings.auto_scale, settings.draw_center);
@@ -316,15 +346,17 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             scale_x.clone(),
             scale_y.clone(),
         );
+
+        let winclone = window.clone();
         let mut animation_fn = move |_timestamp| {
             //微信内置浏览器在request_animation_frame中运行以提高更新频率
-            if is_weixin{
-                if timer.ready_for_next_frame(){
-                    s_update.borrow_mut().update();
+            if is_weixin {
+                if winclone.borrow_mut().timer.ready_for_next_frame() {
+                    s_update.borrow_mut().update(&mut *winclone.borrow_mut());
                 }
             }
             let (window_width, window_height) =
-                (window.inner_width() as f64, window.inner_height() as f64);
+                (webwindow.inner_width() as f64, webwindow.inner_height() as f64);
             let mut state = s_animation.borrow_mut();
             graphics.clear_rect(&background_color, 0., 0., window_width, window_height);
             graphics.context.save();
@@ -346,9 +378,10 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
                 *sx_clone.borrow_mut() = scale_x;
                 *sy_clone.borrow_mut() = scale_y;
             }
+            let (mut trans_x, mut trans_y) = (0.0, 0.0);
             if draw_center {
-                let trans_x = (window_width - new_width) / 2.;
-                let trans_y = (window_height - new_height) / 2.;
+                trans_x = (window_width - new_width) / 2.;
+                trans_y = (window_height - new_height) / 2.;
                 graphics
                     .context
                     .translate(trans_x / scale_x, trans_y / scale_y);
@@ -356,23 +389,45 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
                 *ty_clone.borrow_mut() = trans_y;
             }
 
+            graphics.context.save();
             if let Err(err) = state.draw(&mut graphics) {
                 state.handle_error(format!("draw error {:?}", err));
             }
+            graphics.context.restore();
             if draw_center {
                 graphics.context.restore();
             }
+            //遮盖上部分窗口
+            graphics.clear_rect(&background_color, 0., 0., window_width, trans_y);
+            //遮盖下部分窗口
+            graphics.clear_rect(
+                &background_color,
+                0.,
+                trans_y + height * scale_y,
+                window_width,
+                window_height - (trans_y + height * scale_y),
+            );
+            //遮盖左部分窗口
+            graphics.clear_rect(&background_color, 0.0, 0.0, trans_x, window_height);
+            //遮盖右部分窗口
+            graphics.clear_rect(
+                &background_color,
+                trans_x + width * scale_x,
+                0.0,
+                window_width - (trans_x + width * scale_x),
+                window_height,
+            );
         };
         animation_fn(0.0);
-        
+
         // update
-        if !is_weixin{
+        if !is_weixin {
             let s_update = state.clone();
-            let mut timer = super::AnimationTimer::new(settings.ups as f64);
+            let winclone = window.clone();
             js! {
                 var updatefn = @{move ||{
-                    if timer.ready_for_next_frame(){
-                        s_update.borrow_mut().update();
+                    if winclone.borrow_mut().timer.ready_for_next_frame(){
+                        s_update.borrow_mut().update(&mut *winclone.borrow_mut());
                     }
                 }};
                 var u =  function(){
@@ -401,14 +456,16 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             scale_x.clone(),
             scale_y.clone(),
         );
+        let winclone = window.clone();
         canvas.add_event_listener(move |event: PointerMoveEvent| {
             s_mouse_move.borrow_mut().event(Event::MouseMove(
                 (event.offset_x() - *tx_clone.borrow()) / *sx_clone.borrow(),
                 (event.offset_y() - *ty_clone.borrow()) / *sy_clone.borrow(),
-            ));
+            ), &mut *winclone.borrow_mut());
         });
 
         let s_touch_move = state.clone();
+        let winclone = window.clone();
         let (tx_clone, ty_clone, sx_clone, sy_clone) = (
             trans_x.clone(),
             trans_y.clone(),
@@ -421,11 +478,12 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
                 s_touch_move.borrow_mut().event(Event::MouseMove(
                     (touchs[0].client_x() - *tx_clone.borrow()) / *sx_clone.borrow(),
                     (touchs[0].client_y() - *ty_clone.borrow()) / *sy_clone.borrow(),
-                ));
+                ), &mut *winclone.borrow_mut());
             }
         });
 
         let s_click = state.clone();
+        let winclone = window.clone();
         let (tx_clone, ty_clone, sx_clone, sy_clone) = (
             trans_x.clone(),
             trans_y.clone(),
@@ -436,7 +494,7 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             s_click.borrow_mut().event(Event::Click(
                 (event.offset_x() - *tx_clone.borrow()) / *sx_clone.borrow(),
                 (event.offset_y() - *ty_clone.borrow()) / *sy_clone.borrow(),
-            ));
+            ), &mut *winclone.borrow_mut());
         });
 
         canvas.add_event_listener(move |_event: MouseDownEvent| {
@@ -452,13 +510,24 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         //     event.prevent_default();
         //     STATE.with(|state|{ state.borrow_mut().as_mut().unwrap().event(Event::KeyPress(event.key().to_uppercase())); });
         // });
+        let s_key_up = state.clone();
+        let winclone = window.clone();
+        document().add_event_listener(move |event: KeyUpEvent| {
+            event.prevent_default();
+            s_key_up
+                .borrow_mut()
+                .event(Event::KeyUp(event.key().to_uppercase()), &mut *winclone.borrow_mut());
+        });
+
         let s_key_down = state.clone();
+        let winclone = window.clone();
         document().add_event_listener(move |event: KeyDownEvent| {
             event.prevent_default();
             s_key_down
                 .borrow_mut()
-                .event(Event::KeyPress(event.key().to_uppercase()));
+                .event(Event::KeyDown(event.key().to_uppercase()), &mut *winclone.borrow_mut());
         });
+
         Ok(())
     }() {
         Ok(_) => (),
@@ -466,6 +535,62 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             .borrow_mut()
             .handle_error(format!("init error {:?}", err)),
     }
+
+    //使用worker加速update_rate!!
+
+    /*
+    let worker = r#"
+        var test_count = 0;
+        var last_time = 0;
+
+        function test_cb(){
+            test_count += 1;
+            if(Date.now()>last_time){
+                console.log("count=", test_count);
+                test_count = 0;
+                last_time = Date.now()+1000;
+            }
+        };
+        setInterval(test_cb, 1);
+    "#;
+
+    js!{
+        window.test_count = 0;
+        window.last_time = 0;
+
+        // window.test_cb = function(){
+        //     window.test_count += 1;
+        //     if(Date.now()>window.last_time){
+        //         console.log("count=", window.test_count);
+        //         window.test_count = 0;
+        //         window.last_time = Date.now()+1000;
+        //     }
+        //     setTimeout(window.test_cb);
+        // };
+        // window.test_cb();
+        var blob;
+        try {
+            blob = new Blob([@{worker}], {type: "application/javascript"});
+        } catch (e) { // Backwards-compatibility
+            window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+            blob = new BlobBuilder();
+            blob.append(response);
+            blob = blob.getBlob();
+        }
+        var worker = new Worker(URL.createObjectURL(blob));
+
+        // Test, used in all examples:
+        // worker.onmessage = function(e) {
+        //     window.test_count += 1;
+        //     if(Date.now()>window.last_time){
+        //         console.log("count=", window.test_count);
+        //         window.test_count = 0;
+        //         window.last_time = Date.now()+1000;
+        //     }
+        // };
+        // worker.postMessage("Test");
+    };
+    */
 }
 
 pub fn current_timestamp() -> f64 {
@@ -482,8 +607,8 @@ pub fn log<T: std::fmt::Debug>(s: T) {
     console!(log, format!("{:?}", s));
 }
 
-pub fn play_music(file:&str, repeat: bool){
-    js!{
+pub fn play_music(file: &str, repeat: bool) {
+    js! {
         var url = @{file};
         var repeat = @{repeat};
         var audio = document.getElementById("backgroundAudio");
@@ -500,8 +625,8 @@ pub fn play_music(file:&str, repeat: bool){
     };
 }
 
-pub fn stop_music(){
-    js!{
+pub fn stop_music() {
+    js! {
         var audio = document.getElementById("backgroundAudio");
         audio.pause();
     };
