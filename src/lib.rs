@@ -1,11 +1,9 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "128"]
 
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 #[macro_use]
 extern crate stdweb;
 
-use std::any::Any;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
@@ -37,12 +35,12 @@ impl Default for Transform {
 
 pub trait Window {
     fn set_update_rate(&mut self, ups: u64);
-    fn load_image(&mut self, path: &str) -> Result<Rc<Image>, String>;
-    fn load_image_alpha(&mut self, image: &image::RgbaImage) -> Result<Rc<Image>, String>;
+    fn load_image(&mut self, path: &str) -> Result<Image, String>;
+    fn load_image_alpha(&mut self, image: image::RgbaImage) -> Result<Image, String>;
 }
 
 pub trait Graphics {
-    fn clear_rect(&mut self, color: &[u8; 4], x: f64, y: f64, width: f64, height: f64);
+    fn clear(&mut self, color: &[u8; 4]);
     /// 绘制图片
     ///
     /// # Arguments
@@ -62,7 +60,7 @@ pub trait Graphics {
         image: &Image,
         src: Option<[f64; 4]>,
         dest: Option<[f64; 4]>,
-    ) -> Result<(), String>;
+    );
 
     fn draw_image_at(
         &mut self,
@@ -70,7 +68,7 @@ pub trait Graphics {
         image: &Image,
         x: f64,
         y: f64,
-    ) -> Result<(), String> {
+    ){
         self.draw_image(
             transform,
             image,
@@ -95,13 +93,12 @@ pub trait Graphics {
     /// ```
     fn draw_text(
         &mut self,
-        transform: Option<Transform>,
         cotnent: &str,
         x: f64,
         y: f64,
         color: &[u8; 4],
         font_size: u32,
-    ) -> Result<(), String>;
+    );
 }
 
 #[derive(Debug)]
@@ -129,10 +126,24 @@ pub trait State: 'static {
     }
 }
 
-pub trait Image {
-    fn width(&self) -> f64;
-    fn height(&self) -> f64;
-    fn as_any(&self) -> &dyn Any;
+// pub trait Image {
+//     fn width(&self) -> f64;
+//     fn height(&self) -> f64;
+//     fn as_any(&self) -> &dyn Any;
+// }
+
+#[derive(Clone)]
+struct Image {
+    image: coffee::graphics::Image,
+}
+
+impl Image{
+    pub fn width(&self) -> f64 {
+        self.image.width() as f64
+    }
+    pub fn height(&self) -> f64 {
+        self.image.height() as f64
+    }
 }
 
 //计时器
@@ -171,12 +182,12 @@ impl AnimationTimer {
 }
 
 pub struct SubImage {
-    image: Rc<Image>,
+    image: Image,
     region: [f64; 4],
 }
 
 impl SubImage {
-    pub fn new(image: Rc<Image>, region: [f64; 4]) -> SubImage {
+    pub fn new(image: Image, region: [f64; 4]) -> SubImage {
         SubImage { image, region }
     }
 
@@ -185,20 +196,20 @@ impl SubImage {
         transform: Option<Transform>,
         g: &mut Graphics,
         dest: [f64; 4],
-    ) -> Result<(), String> {
+    ){
         g.draw_image(
             transform,
-            self.image.as_ref(),
+            &self.image,
             Some(self.region),
             Some(dest),
-        )
+        );
     }
 }
 
 #[derive(Clone)]
 pub struct Animation {
     timer: AnimationTimer,
-    image: Rc<Image>,
+    image: Image,
     frames: Vec<[f64; 4]>,
     current: i32,
     repeat: bool,
@@ -208,7 +219,7 @@ pub struct Animation {
 }
 
 impl Animation {
-    pub fn new(image: Rc<Image>, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
+    pub fn new(image: Image, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
         Animation {
             timer: AnimationTimer::new(fps),
             image,
@@ -221,7 +232,7 @@ impl Animation {
         }
     }
 
-    pub fn active(image: Rc<Image>, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
+    pub fn active(image: Image, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
         let mut anim = Self::new(image, frames, fps);
         anim.start();
         anim
@@ -293,7 +304,7 @@ impl Animation {
         transform: Option<Transform>,
         g: &mut Graphics,
         dest: [f64; 4],
-    ) -> Result<(), String> {
+    ){
         let mut current = 0;
         if self.current > 0 {
             current = if self.current == self.frames.len() as i32 {
@@ -304,10 +315,10 @@ impl Animation {
         }
         g.draw_image(
             transform,
-            self.image.as_ref(),
+            &self.image,
             Some(self.frames[current as usize]),
             Some(dest),
-        )
+        );
     }
 }
 
@@ -512,8 +523,10 @@ pub struct Settings {
     pub window_size: Option<(f64, f64)>,
     /// 居中绘图
     pub draw_center: bool,
-    // 自动缩放
+    /// 自动缩放
     pub auto_scale: bool,
+    /// 显示更新频率 UPS/FPS
+    pub show_ups_fps: bool, 
 }
 
 impl Default for Settings {
@@ -530,6 +543,7 @@ impl Default for Settings {
             draw_center: true,
             auto_scale: false,
             window_size: None,
+            show_ups_fps: false,
         }
     }
 }

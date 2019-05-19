@@ -23,12 +23,11 @@ pub trait GameEngine {
         sprites.push(sprite);
     }
 
-    fn draw_sprites(&mut self, g: &mut Graphics) -> Result<(), String> {
+    fn draw_sprites(&mut self, g: &mut Graphics){
         //绘制所有的精灵
         for sprite in self.sprites() {
-            sprite.draw(g)?;
+            sprite.draw(g);
         }
-        Ok(())
     }
 
     fn update_sprites(&mut self) {

@@ -6,12 +6,12 @@ use stdweb::unstable::TryInto;
 use stdweb::web::html_element::ImageElement;
 use stdweb::web::IElement;
 use stdweb::web::{document, CanvasRenderingContext2d};
+use png::HasParameters;
 
 use super::{AnimationTimer, Graphics, AudioType, Event, Window, Image, Settings, State, Transform};
 use std::any::Any;
 use std::cell::RefCell;
 use stdweb::web::event::{
-    // KeyPressEvent,
     ClickEvent,
     ITouchEvent,
     KeyDownEvent,
@@ -40,16 +40,40 @@ impl Image for WebImage {
 
 struct BrowserWindow{
     timer: AnimationTimer,
+    ups_count: u64,
+    fps_count: u64,
+    ups: u64,
+    fps: u64,
+    ups_fps_timer: AnimationTimer
 }
 impl Window for BrowserWindow{
     fn set_update_rate(&mut self, ups: u64){
+        // if !set_worker_update_rate(ups){
         self.timer.set_fps(ups as f64);
+        // }
     }
 
     fn load_image(&mut self, path: &str) -> Result<Rc<Image>, String> {
         let image = ImageElement::new();
         let web_image = Rc::new(WebImage { image });
         web_image.image.set_src(path);
+        Ok(web_image)
+    }
+
+    fn load_image_alpha(&mut self, image: &image::RgbaImage) -> Result<Rc<Image>, String>{
+        let mut png_data:Vec<u8> = vec![];
+        {
+            let mut encoder = png::Encoder::new(&mut png_data, image.width(), image.height());
+            encoder.set(png::ColorType::RGBA);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&image).unwrap();
+        }
+
+        let mut png_base64 = base64::encode(&png_data);
+        png_base64.insert_str(0, "data:image/png;base64,");
+        let image = ImageElement::new();
+        let web_image = Rc::new(WebImage { image });
+        web_image.image.set_src(&png_base64);
         Ok(web_image)
     }
 }
@@ -210,6 +234,11 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         .unwrap();
 
     let window = Rc::new(RefCell::new(BrowserWindow {
+        ups_count: 0,
+        fps_count: 0,
+        ups: 0,
+        fps: 0,
+        ups_fps_timer: AnimationTimer::new(1.0),
         timer: AnimationTimer::new(settings.ups as f64),
     }));
 
@@ -335,6 +364,66 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             );
         });
 
+
+        // -------------- 更新函数部分 --------------------
+        
+        
+        //先检查是否支持worker
+        let mut use_worker = true;
+        let s_update = state.clone();
+        let winclone = window.clone();
+        if !create_update_worker(settings.ups, move ||{
+            let mut w = winclone.borrow_mut();
+
+            //{worker中使用setInterval因此不用判断timer}!!!
+            //s_update.borrow_mut().update(&mut *w);
+            if w.timer.ready_for_next_frame(){
+                s_update.borrow_mut().update(&mut *w);
+                w.ups_count += 1;
+            }
+
+            if w.ups_fps_timer.ready_for_next_frame(){
+                w.ups = w.ups_count;
+                w.fps = w.fps_count;
+                w.ups_count = 0;
+                w.fps_count = 0;
+            }
+        }){
+            use_worker = false;
+            //不支持worker则使用setTimeout方法 调用 update
+            if !is_weixin {
+                //重新创建一份callback
+                let s_update = state.clone();
+                let winclone = window.clone();
+                js! {
+                    var updatefn = @{
+                        //setTimeOut使用最快速度，每次都要判断timer
+                        move ||{
+                            let mut w = winclone.borrow_mut();
+
+                            if w.timer.ready_for_next_frame(){
+                                s_update.borrow_mut().update(&mut *w);
+                                w.ups_count += 1;
+                            }
+                            if w.ups_fps_timer.ready_for_next_frame(){
+                                w.ups = w.ups_count;
+                                w.fps = w.fps_count;
+                                w.ups_count = 0;
+                                w.fps_count = 0;
+                            }
+                        }
+                    };
+                    var u =  function(){
+                        updatefn();
+                        setTimeout(u, 1);
+                    };
+                    setTimeout(u, 1);
+                    //setInterval(updatefn, 1);
+                    //setTimeout 或 setInterval 频率最高220~230
+                };
+            }
+        }
+
         let s_update = state.clone();
         // request_animation_frame
         let s_animation = state.clone();
@@ -350,11 +439,22 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
         let winclone = window.clone();
         let mut animation_fn = move |_timestamp| {
             //微信内置浏览器在request_animation_frame中运行以提高更新频率
-            if is_weixin {
+            if is_weixin && !use_worker {
+                //判断timer以支持较低帧率
                 if winclone.borrow_mut().timer.ready_for_next_frame() {
                     s_update.borrow_mut().update(&mut *winclone.borrow_mut());
+                    winclone.borrow_mut().ups_count += 1;
+                }
+
+                let mut w = winclone.borrow_mut();
+                if w.ups_fps_timer.ready_for_next_frame(){
+                    w.ups = w.ups_count;
+                    w.fps = w.fps_count;
+                    w.ups_count = 0;
+                    w.fps_count = 0;
                 }
             }
+            winclone.borrow_mut().fps_count += 1;
             let (window_width, window_height) =
                 (webwindow.inner_width() as f64, webwindow.inner_height() as f64);
             let mut state = s_animation.borrow_mut();
@@ -393,6 +493,22 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             if let Err(err) = state.draw(&mut graphics) {
                 state.handle_error(format!("draw error {:?}", err));
             }
+            
+            //显示UPS/FPS
+            if settings.show_ups_fps{
+                let _ = graphics.draw_text(
+                None,
+                &format!(
+                    "UPS/FPS:{}/{}",
+                    winclone.borrow().ups,
+                    winclone.borrow().fps
+                ),
+                20.,
+                height-30.,
+                &[255, 255, 0, 200],
+                10);
+            }
+
             graphics.context.restore();
             if draw_center {
                 graphics.context.restore();
@@ -419,26 +535,6 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             );
         };
         animation_fn(0.0);
-
-        // update
-        if !is_weixin {
-            let s_update = state.clone();
-            let winclone = window.clone();
-            js! {
-                var updatefn = @{move ||{
-                    if winclone.borrow_mut().timer.ready_for_next_frame(){
-                        s_update.borrow_mut().update(&mut *winclone.borrow_mut());
-                    }
-                }};
-                var u =  function(){
-                    updatefn();
-                    setTimeout(u, 1);
-                };
-                setTimeout(u, 1);
-                //setInterval(updatefn, 1);
-                //setTimeout 或 setInterval 频率最高220~230
-            };
-        }
 
         js! {
             var animation_fn = @{animation_fn};
@@ -535,62 +631,75 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
             .borrow_mut()
             .handle_error(format!("init error {:?}", err)),
     }
+}
 
-    //使用worker加速update_rate!!
-
-    /*
-    let worker = r#"
-        var test_count = 0;
-        var last_time = 0;
-
-        function test_cb(){
-            test_count += 1;
-            if(Date.now()>last_time){
-                console.log("count=", test_count);
-                test_count = 0;
-                last_time = Date.now()+1000;
-            }
-        };
-        setInterval(test_cb, 1);
-    "#;
-
-    js!{
-        window.test_count = 0;
-        window.last_time = 0;
-
-        // window.test_cb = function(){
-        //     window.test_count += 1;
-        //     if(Date.now()>window.last_time){
-        //         console.log("count=", window.test_count);
-        //         window.test_count = 0;
-        //         window.last_time = Date.now()+1000;
-        //     }
-        //     setTimeout(window.test_cb);
-        // };
-        // window.test_cb();
-        var blob;
-        try {
-            blob = new Blob([@{worker}], {type: "application/javascript"});
-        } catch (e) { // Backwards-compatibility
-            window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
-            blob = new BlobBuilder();
-            blob.append(response);
-            blob = blob.getBlob();
+///设置Worker的更新频率
+fn set_worker_update_rate(ups: u64) -> bool{
+    let ret: bool = js!{
+        if(window.update_worker){
+            window.update_worker.postMessage(@{ups as i32});
+            return true;
+        }else{
+            return false;
         }
-        var worker = new Worker(URL.createObjectURL(blob));
+    }.try_into().unwrap_or(false);
+    ret
+}
 
-        // Test, used in all examples:
-        // worker.onmessage = function(e) {
-        //     window.test_count += 1;
-        //     if(Date.now()>window.last_time){
-        //         console.log("count=", window.test_count);
-        //         window.test_count = 0;
-        //         window.last_time = Date.now()+1000;
-        //     }
-        // };
-        // worker.postMessage("Test");
-    };
-    */
+///使用worker加速update_rate
+fn create_update_worker<F:Fn()+'static>(ups: u64, callback:F) -> bool{
+    // let mut worker = String::from(r#"
+    //     var ups = _60_;
+    //     var interval;
+
+    //     function send(){
+    //         postMessage('update');
+    //     }
+
+    //     onmessage = function(e) {
+    //         ups = e.data;
+    //         if(interval){
+    //             clearInterval(interval);
+    //         }
+    //         interval = setInterval(send, 1000.0/ups);
+    //     };
+    //     interval = setInterval(send, 1000.0/ups);
+    // "#);
+
+    let mut worker = String::from(r#"
+        function send(){
+            postMessage('update');
+        }
+        var interval = setInterval(send, 1);
+    "#);
+
+    worker = worker.replace("_60_", &format!("{}.0", ups));
+
+    let ret:bool = js!{
+        var update_callback = @{callback};
+
+        //创建worker
+        try{
+            var blob;
+            try {
+                blob = new Blob([@{worker}], {type: "application/javascript"});
+            } catch (e) { // Backwards-compatibility
+                window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+                blob = new BlobBuilder();
+                blob.append(response);
+                blob = blob.getBlob();
+            }
+            var worker = new Worker(URL.createObjectURL(blob));
+            worker.onmessage = function(msg){
+                update_callback();
+            };
+            window.update_worker = worker;
+            return true;
+        }catch(e){
+            return false;
+        }
+    }.try_into().unwrap_or(false);
+    ret
 }
 
 pub fn current_timestamp() -> f64 {

@@ -1,6 +1,5 @@
 use crate::*;
 use std::cmp;
-use std::rc::Rc;
 
 //Sprite主要代码
 
@@ -21,7 +20,7 @@ pub trait SpriteExt {
 }
 
 pub enum Resource {
-    Static(Rc<Image>),
+    Static(Image),
     Animation(Animation),
 }
 
@@ -251,7 +250,7 @@ impl Sprite {
         }
     }
 
-    pub fn draw(&self, g: &mut Graphics) -> Result<(), String> {
+    pub fn draw(&self, g: &mut Graphics){
         // Draw the sprite if it isn't hidden
         if !self.hidden {
             // Draw the appropriate frame, if necessary
@@ -263,10 +262,8 @@ impl Sprite {
             ];
             match &self.resource {
                 Resource::Animation(anim) => anim.draw(None, g, dest),
-                Resource::Static(image) => g.draw_image(None, image.as_ref(), None, Some(dest)),
-            }
-        } else {
-            Ok(())
+                Resource::Static(image) => g.draw_image(None, &image, None, Some(dest)),
+            };
         }
     }
 

@@ -10,14 +10,9 @@ edition = "2018"
 version = "0.21.1"
 default-features = false
 
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser"] }
-
 [target.'cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))'.dependencies]
-piston_window = "0.89.0"
-piston-gfx_texture = "0.35.0"
-gfx_device_gl = "0.15.5"
-winit = { version = "0.18.1", features = [ "icon_loading"] }
+# coffee = { version = "0.2.0", features = ["opengl"] }
+coffee = { git = "https://github.com/hecrj/coffee", features = ["opengl"] }
 rodio = "0.8.1"
 rand = "0.6.5"
 
@@ -25,3 +20,5 @@ rand = "0.6.5"
 wasm-bindgen = "*"
 stdweb = "0.4.17"
 askama = "0.8.0"
+base64 = "0.10.1"
+png = "0.14.1"

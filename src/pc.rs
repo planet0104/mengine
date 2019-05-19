@@ -1,11 +1,14 @@
-use super::{AudioType, Event, Window, Graphics, Image, Settings, State, Transform};
-use piston_window::keyboard::Key;
-use piston_window::mouse::{MouseButton, MouseCursorEvent};
-use piston_window::{
-    rectangle, Button, Context, EventLoop, EventSettings, Filter, Flip, G2d, Glyphs,
-    Image as GfxImage, ImageSize, PistonWindow, PressEvent, ReleaseEvent, Text, Texture,
-    TextureSettings, Transformed, UpdateEvent, Window as WindowTrait, WindowSettings,
-};
+use super::{AnimationTimer, AudioType, Event, Window, Graphics, Image, Settings, State, Transform};
+// use piston_window::keyboard::Key;
+// use piston_window::mouse::{MouseButton, MouseCursorEvent};
+// use piston_window::{
+//     rectangle, Button, Context, EventLoop, EventSettings, Filter, Flip, G2d, Glyphs,
+//     Image as GfxImage, ImageSize, PistonWindow, PressEvent, ReleaseEvent, Text, Texture,
+//     TextureSettings, Transformed, UpdateEvent, Window as WindowTrait, WindowSettings,
+// };
+
+use coffee::graphics::{View, Text, Color, Font, Quad, Rectangle, Point, Frame, Vector, Transformation, Window as CoffeeWindow, Image as CoffeeImage, Target};
+
 use rodio::Source;
 use std::any::Any;
 use std::cell::RefCell;
@@ -16,94 +19,51 @@ use std::path::Path;
 use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
-use winit::Icon;
+// use winit::Icon;
 
-struct PcImage {
-    width: f64,
-    height: f64,
-    texture: gfx_texture::Texture<gfx_device_gl::Resources>,
+struct PcWindow<'a>{
+    timer: &'a mut AnimationTimer,
+    window: &'a mut CoffeeWindow,
 }
-impl Image for PcImage {
-    fn width(&self) -> f64 {
-        self.width
-    }
-    fn height(&self) -> f64 {
-        self.height
-    }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-struct BasicWindow<'a>{
-    window: &'a mut PistonWindow,
-}
-impl<'a> Window for BasicWindow<'a> {
+impl <'a> Window for PcWindow<'a>{
     fn set_update_rate(&mut self, ups: u64){
-        self.window.set_ups(ups);
+        self.timer.set_fps(ups as f64);
     }
 
-    fn load_image_alpha(&mut self, image: &image::RgbaImage) -> Result<Rc<Image>, String>{
-        match Texture::from_image(
-            &mut self.window.factory,
-            image,
-            &TextureSettings::new(),
-        ){
-            Ok(texture) => Ok(Rc::new(PcImage {
-                width: texture.get_width() as f64,
-                height: texture.get_height() as f64,
-                texture,
-            })),
+    fn load_image_alpha(&mut self, image: image::RgbaImage) -> Result<Image, String>{
+        match CoffeeImage::from_image(self.window.gpu(), image::DynamicImage::ImageRgba8(image)){
+            Ok(image) => Ok(Image { image }),
             Err(err) => Err(format!("{:?}", err))
         }
     }
 
-    fn load_image(&mut self, path: &str) -> Result<Rc<Image>, String> {
+    fn load_image(&mut self, path: &str) -> Result<Image, String> {
         let path = "./static/".to_owned() + path;
-        let texture = Texture::from_path(
-            &mut self.window.factory,
-            Path::new(&path),
-            Flip::None,
-            &TextureSettings::new(),
-        )?;
-        Ok(Rc::new(PcImage {
-            width: texture.get_width() as f64,
-            height: texture.get_height() as f64,
-            texture,
-        }))
-    }
-}
-
-struct PcGraphics<'a, 'b> {
-    glyphs: Option<&'a RefCell<Glyphs>>,
-    context: Context,
-    graphics: &'a mut G2d<'b>,
-}
-
-impl<'a, 'b> PcGraphics<'a, 'b> {
-    fn transform(&self, transform: Option<Transform>) -> Context {
-        let mut context = self.context.clone();
-        if let Some(transform) = transform {
-            context = context.trans(transform.translate.0, transform.translate.1);
-            context = context.rot_rad(transform.rotate);
+        match CoffeeImage::new(self.window.gpu(), path){
+            Ok(image) => Ok(Image { image }),
+            Err(err) => Err(format!("{:?}", err))
         }
-        context
     }
 }
 
-impl<'a, 'b> Graphics for PcGraphics<'a, 'b> {
-    fn clear_rect(&mut self, color: &[u8; 4], x: f64, y: f64, width: f64, height: f64) {
-        rectangle(
-            [
-                color[0] as f32 / 255.0,
-                color[1] as f32 / 255.0,
-                color[2] as f32 / 255.0,
-                color[3] as f32 / 255.0,
-            ], // red
-            [x, y, width, height],
-            self.context.transform,
-            self.graphics,
-        );
+struct PcGraphics<'a> {
+    target: Target<'a>,
+    font: &'a mut Font,
+}
+
+impl<'a> PcGraphics<'a> {
+    fn transform(&self, transform: Option<Transform>) -> Target<'a> {
+        if let Some(transform) = transform {
+            self.target.transform(Transformation::translate(Vector::new(transform.translate.0 as f32, transform.translate.1 as f32)));
+            self.target.transform(Transformation::rotate(transform.rotate as f32));
+        }
+        self.target
+    }
+}
+
+impl<'a> Graphics for PcGraphics<'a> {
+    fn clear(&mut self, color: &[u8; 4]) {
+        self.target.clear(Color::new(color[0] as f32/255.0, color[1] as f32/255.0, color[2] as f32/255.0, color[3] as f32/255.0));
     }
 
     fn draw_image(
@@ -112,62 +72,56 @@ impl<'a, 'b> Graphics for PcGraphics<'a, 'b> {
         image: &Image,
         src: Option<[f64; 4]>,
         dest: Option<[f64; 4]>,
-    ) -> Result<(), String> {
-        match image.as_any().downcast_ref::<PcImage>() {
-            Some(image) => {
-                let context = self.transform(transform);
-                let mut gfx_image = GfxImage::new();
-                if let Some(src) = src {
-                    gfx_image = gfx_image.src_rect(src);
-                }
-                if let Some(dest) = dest {
-                    gfx_image = gfx_image.rect(dest);
-                }
-                gfx_image.draw(
-                    &image.texture,
-                    &context.draw_state,
-                    context.transform,
-                    self.graphics,
-                );
-                Ok(())
+    ){
+        let (w, h) = (image.image.width(), image.image.height());
+
+        let (position, size) = if let Some(dest) = dest{
+            (Point::new(dest[0] as f32, dest[1] as f32), (dest[2] as f32, dest[3] as f32))
+        }else{
+            (Point::new(0.0, 0.0), (w as f32, h as f32))
+        };
+
+        let source = if let Some(src) = src{
+            Rectangle {
+                x: src[0] as f32/w as f32,
+                y: src[1] as f32/h as f32,
+                width: src[2] as f32/h as f32,
+                height: src[3] as f32/h as f32,
             }
-            None => Err("Image downcast PcImage Error!".to_string()),
-        }
+        }else{
+            Rectangle {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            }
+        };
+
+        image.image.draw(
+            Quad {
+                source,
+                position,
+                size,
+            },
+            &mut self.target
+        );
     }
 
     fn draw_text(
         &mut self,
-        transform: Option<Transform>,
         cotnent: &str,
         x: f64,
         y: f64,
         color: &[u8; 4],
         font_size: u32,
-    ) -> Result<(), String> {
-        let context = self.transform(transform);
-        if let Some(glyphs) = self.glyphs.as_mut() {
-            let text = Text::new_color(
-                [
-                    color[0] as f32 / 255.0,
-                    color[1] as f32 / 255.0,
-                    color[2] as f32 / 255.0,
-                    color[3] as f32 / 255.0,
-                ],
-                font_size,
-            );
-            match text.draw(
-                cotnent,
-                &mut *glyphs.borrow_mut(),
-                &context.draw_state,
-                context.trans(x, y).transform,
-                self.graphics,
-            ) {
-                Err(err) => Err(format!("{:?}", err)),
-                Ok(()) => Ok(()),
-            }
-        } else {
-            Ok(())
-        }
+    ){
+        self.font.add(Text {
+            content: String::from(cotnent),
+            position: Point::new(x as f32, y as f32),
+            size: font_size as f32,
+            color: Color::new(color[0] as f32/255.0, color[1] as f32/255.0, color[2] as f32/255.0, color[3] as f32/255.0),
+            ..Text::default()
+        });
     }
 }
 
