@@ -1,6 +1,6 @@
 [package]
 name = "mengine"
-version = "0.6.5"
+version = "0.6.6"
 authors = ["planet0104 <planet0104@gmail.com>"]
 edition = "2018"
 
@@ -11,6 +11,7 @@ winit = { version = "0.19.1", features = ["icon_loading"] }
 rodio = "0.8.1"
 rand = "0.6.5"
 image = "0.21.1"
+nsvg = "0.5.0"
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.7"

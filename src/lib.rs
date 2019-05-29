@@ -77,6 +77,7 @@ pub trait Window {
     fn set_update_rate(&mut self, ups: u64);
     fn load_assets(&mut self, assets: Vec<(&str, AssetsType)>);
     fn load_image(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>);
+    fn load_svg(&mut self, key: &str, svg: String);
 }
 
 pub trait Graphics {

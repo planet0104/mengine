@@ -174,6 +174,18 @@ impl Window for BrowserWindow {
             Ok(RawAssets::Image(image)),
         ));
     }
+
+    fn load_svg(&mut self, key: &str, svg: String) {
+        let mut svg_base64 = base64::encode(&svg);
+        svg_base64.insert_str(0, "data:image/svg+xml;base64,");
+        let image = ImageElement::new();
+        image.set_src(&svg_base64);
+        let _ = self.sender.send((
+            String::from(key),
+            AssetsType::Image,
+            Ok(RawAssets::Image(image)),
+        ));
+    }
 }
 
 struct BrowserGraphics {

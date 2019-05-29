@@ -55,8 +55,6 @@ struct D2DWindow {
     new_size: Option<(f64, f64)>,
     thread_sender: Sender<(String, AssetsType, Result<RawAssets>)>,
     update_delay: Duration,
-    //等待编译的图片
-    rgba_images: Vec<(String, RgbaImage)>,
 }
 impl Window for D2DWindow {
     fn set_update_rate(&mut self, ups: u64) {
@@ -127,7 +125,24 @@ impl Window for D2DWindow {
 
     fn load_image(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>) {
         let image: RgbaImage = image::ImageBuffer::from_raw(width, height, data).unwrap();
-        self.rgba_images.push((String::from(key), image));
+        let _ = self.thread_sender.send((
+            String::from(key),
+            AssetsType::Image,
+            Ok(RawAssets::Image(image)),
+        ));
+    }
+
+    fn load_svg(&mut self, key: &str, svg: String) {
+        let svg = nsvg::parse_str(&svg, nsvg::Units::Pixel, 96.0).unwrap();
+        // Rasterize the loaded SVG and return dimensions and a RGBA buffer
+        let (width, height, raw_rgba) = svg.rasterize_to_raw_rgba(1.0).unwrap();
+        let mut image = image::DynamicImage::new_rgba8(width, height).to_rgba();
+        image.copy_from_slice(&raw_rgba);
+        let _ = self.thread_sender.send((
+            String::from(key),
+            AssetsType::Image,
+            Ok(RawAssets::Image(image)),
+        ));
     }
 }
 
@@ -394,7 +409,6 @@ pub fn run<S: State>(title: &str, width: f64, height: f64, settings: Settings) {
     let mut raw_rgba_images = vec![];
     let mut game_window = D2DWindow {
         new_size: None,
-        rgba_images: vec![],
         update_delay: Duration::from_micros(1000 * 1000 / settings.ups),
         thread_sender: assets_sender,
     };
