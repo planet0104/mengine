@@ -6,20 +6,17 @@ pub struct ScrollingBackground {
 
 impl ScrollingBackground {
     pub fn new() -> ScrollingBackground {
-        ScrollingBackground {
-            layers: vec![],
-        }
+        ScrollingBackground { layers: vec![] }
     }
 
     pub fn add_layer(&mut self, layer: BackgroundLayer) {
         self.layers.push(layer);
     }
 
-    pub fn draw(&self, g: &mut Graphics) -> Result<(), String>{
+    pub fn draw(&self, g: &mut Graphics) {
         for layer in &self.layers {
             layer.draw(g);
         }
-        Ok(())
     }
 
     pub fn update(&mut self) {
@@ -46,7 +43,7 @@ pub struct BackgroundLayer {
 }
 
 impl BackgroundLayer {
-    pub fn new(bitmap: Image, viewport:Rect, speed: f64, direction: ScrollDir) -> BackgroundLayer {
+    pub fn new(bitmap: Image, viewport: Rect, speed: f64, direction: ScrollDir) -> BackgroundLayer {
         BackgroundLayer {
             speed,
             direction,
@@ -99,7 +96,7 @@ impl BackgroundLayer {
         }
     }
 
-    pub fn draw(&self, g: &mut Graphics){
+    pub fn draw(&self, g: &mut Graphics) {
         let (x, y) = (0.0, 0.0);
         //仅绘制通过视口看到的图层部分
         if self.viewport.top < 0.0 && self.viewport.left < 0.0 {

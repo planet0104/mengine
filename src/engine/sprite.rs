@@ -250,7 +250,7 @@ impl Sprite {
         }
     }
 
-    pub fn draw(&self, g: &mut Graphics){
+    pub fn draw(&self, g: &mut Graphics) {
         // Draw the sprite if it isn't hidden
         if !self.hidden {
             // Draw the appropriate frame, if necessary

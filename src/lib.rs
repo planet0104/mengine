@@ -4,21 +4,21 @@
 #[macro_use]
 extern crate stdweb;
 
-use std::sync::{Arc, Mutex};
-
-#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-mod pc;
-#[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-use pc as window;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as window;
 
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 mod web;
+use std::rc::Rc;
 #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
 use web as window;
-
 pub mod engine;
 
-pub use window::{current_timestamp, log, play_music, play_sound, random, run, stop_music};
+pub use window::{
+    alert, current_timestamp, log, play_music, play_sound, random, run, stop_music, Image, Sound,
+};
 
 pub struct Transform {
     pub rotate: f64,
@@ -33,14 +33,54 @@ impl Default for Transform {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum AssetsType {
+    Image,
+    File,
+    Sound,
+}
+
+#[derive(Debug, Clone)]
+pub enum Assets {
+    Image(Image),
+    Sound(Sound),
+    File(Vec<u8>),
+}
+
+impl Assets {
+    pub fn as_image(&self) -> Option<Image> {
+        (if let Assets::Image(image) = self {
+            Some(image.clone())
+        } else {
+            None
+        })
+    }
+
+    pub fn as_file(&self) -> Option<Vec<u8>> {
+        (if let Assets::File(data) = self {
+            Some(data.clone())
+        } else {
+            None
+        })
+    }
+
+    pub fn as_sound(&self) -> Option<Sound> {
+        (if let Assets::Sound(data) = self {
+            Some(data.clone())
+        } else {
+            None
+        })
+    }
+}
+
 pub trait Window {
     fn set_update_rate(&mut self, ups: u64);
-    fn load_image(&mut self, path: &str) -> Result<Image, String>;
-    fn load_image_alpha(&mut self, image: image::RgbaImage) -> Result<Image, String>;
+    fn load_assets(&mut self, assets: Vec<(&str, AssetsType)>);
+    fn load_image(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>);
 }
 
 pub trait Graphics {
-    fn clear(&mut self, color: &[u8; 4]);
+    fn fill_rect(&mut self, color: &[u8; 4], x: f64, y: f64, width: f64, height: f64);
     /// 绘制图片
     ///
     /// # Arguments
@@ -62,13 +102,7 @@ pub trait Graphics {
         dest: Option<[f64; 4]>,
     );
 
-    fn draw_image_at(
-        &mut self,
-        transform: Option<Transform>,
-        image: &Image,
-        x: f64,
-        y: f64,
-    ){
+    fn draw_image_at(&mut self, transform: Option<Transform>, image: &Image, x: f64, y: f64) {
         self.draw_image(
             transform,
             image,
@@ -91,14 +125,7 @@ pub trait Graphics {
     /// ```
     /// g.draw_text("Hello!", 0., 20., &[255, 0, 0, 255], 16).expect("text draw failed.");
     /// ```
-    fn draw_text(
-        &mut self,
-        cotnent: &str,
-        x: f64,
-        y: f64,
-        color: &[u8; 4],
-        font_size: u32,
-    );
+    fn draw_text(&mut self, cotnent: &str, x: f64, y: f64, color: &[u8; 4], font_size: u32);
 }
 
 #[derive(Debug)]
@@ -113,9 +140,16 @@ pub trait State: 'static {
     fn new(window: &mut Window) -> Self;
     fn update(&mut self, _window: &mut Window) {}
     fn event(&mut self, _event: Event, _window: &mut Window) {}
-    fn draw(&mut self, _graphics: &mut Graphics) -> Result<(), String> {
-        Ok(())
-    }
+    fn draw(&mut self, graphics: &mut Graphics, window: &mut Window);
+    ///
+    ///
+    fn on_assets_load(
+        &mut self,
+        path: &str,
+        t: AssetsType,
+        assets: std::io::Result<Assets>,
+        window: &mut Window,
+    );
     #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
     fn handle_error(&mut self, error: String) {
         console!(error, error);
@@ -123,26 +157,6 @@ pub trait State: 'static {
     #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
     fn handle_error(&mut self, error: String) {
         eprintln!("Unhandled error: {:?}", error);
-    }
-}
-
-// pub trait Image {
-//     fn width(&self) -> f64;
-//     fn height(&self) -> f64;
-//     fn as_any(&self) -> &dyn Any;
-// }
-
-#[derive(Clone)]
-struct Image {
-    image: coffee::graphics::Image,
-}
-
-impl Image{
-    pub fn width(&self) -> f64 {
-        self.image.width() as f64
-    }
-    pub fn height(&self) -> f64 {
-        self.image.height() as f64
     }
 }
 
@@ -161,7 +175,7 @@ impl AnimationTimer {
         }
     }
 
-    pub fn set_fps(&mut self, fps: f64){
+    pub fn set_fps(&mut self, fps: f64) {
         self.frame_time = 1000.0 / fps;
     }
 
@@ -191,25 +205,15 @@ impl SubImage {
         SubImage { image, region }
     }
 
-    pub fn draw(
-        &self,
-        transform: Option<Transform>,
-        g: &mut Graphics,
-        dest: [f64; 4],
-    ){
-        g.draw_image(
-            transform,
-            &self.image,
-            Some(self.region),
-            Some(dest),
-        );
+    pub fn draw(&self, transform: Option<Transform>, g: &mut Graphics, dest: [f64; 4]) {
+        g.draw_image(transform, &self.image, Some(self.region), Some(dest));
     }
 }
 
 #[derive(Clone)]
 pub struct Animation {
     timer: AnimationTimer,
-    image: Image,
+    image: Rc<Image>,
     frames: Vec<[f64; 4]>,
     current: i32,
     repeat: bool,
@@ -222,7 +226,7 @@ impl Animation {
     pub fn new(image: Image, frames: Vec<[f64; 4]>, fps: f64) -> Animation {
         Animation {
             timer: AnimationTimer::new(fps),
-            image,
+            image: Rc::new(image),
             frames,
             current: -1,
             repeat: false,
@@ -299,12 +303,7 @@ impl Animation {
         jump
     }
 
-    pub fn draw(
-        &self,
-        transform: Option<Transform>,
-        g: &mut Graphics,
-        dest: [f64; 4],
-    ){
+    pub fn draw(&self, transform: Option<Transform>, g: &mut Graphics, dest: [f64; 4]) {
         let mut current = 0;
         if self.current > 0 {
             current = if self.current == self.frames.len() as i32 {
@@ -516,8 +515,6 @@ pub struct Settings {
     /// How many times is the update method called per second
     pub ups: u64,
     pub icon_path: Option<&'static str>, // TODO: statiC?
-    /// 字体文件名(static文件夹)
-    pub font_file: Option<&'static str>,
     /// 背景色[r,g,b,a]
     pub background_color: Option<[u8; 4]>,
     pub window_size: Option<(f64, f64)>,
@@ -526,7 +523,7 @@ pub struct Settings {
     /// 自动缩放
     pub auto_scale: bool,
     /// 显示更新频率 UPS/FPS
-    pub show_ups_fps: bool, 
+    pub show_ups_fps: bool,
 }
 
 impl Default for Settings {
@@ -538,7 +535,6 @@ impl Default for Settings {
             fullscreen: false,
             ups: 60,
             icon_path: None,
-            font_file: None,
             background_color: None,
             draw_center: true,
             auto_scale: false,
@@ -548,108 +544,71 @@ impl Default for Settings {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum AudioType {
     WAV,
     MP3,
     OGG,
     FLAC,
+    Other,
 }
 
-pub struct AssetsFile {
-    file_name: String,
-    data: Option<Vec<u8>>,
-    tmp_data: Arc<Mutex<Option<Vec<u8>>>>,
+impl AudioType {
+    pub fn test(path: &str) -> AudioType {
+        let path = path.to_ascii_lowercase();
+        if path.ends_with("wav") {
+            AudioType::WAV
+        } else if path.ends_with("mp3") {
+            AudioType::MP3
+        } else if path.ends_with("ogg") {
+            AudioType::OGG
+        } else if path.ends_with("flac") {
+            AudioType::FLAC
+        } else {
+            AudioType::Other
+        }
+    }
 }
 
-impl AssetsFile {
-    pub fn new(file_name: &str) -> AssetsFile {
-        AssetsFile {
-            file_name: file_name.to_string(),
-            data: None,
-            tmp_data: Arc::new(Mutex::new(None)),
-        }
-    }
+// pub struct AssetsFile {
+//     file_name: String,
+//     data: Option<Vec<u8>>,
+//     tmp_data: Arc<Mutex<Option<Vec<u8>>>>,
+// }
 
-    pub fn load(&mut self) {
-        #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
-        {
-            use stdweb::unstable::TryInto;
-            use stdweb::web::event::ReadyStateChangeEvent;
-            use stdweb::web::ArrayBuffer;
-            use stdweb::web::IEventTarget;
-            use stdweb::web::XhrReadyState;
-            use stdweb::web::XhrResponseType;
-            use stdweb::web::XmlHttpRequest;
+// impl AssetsFile {
+//     pub fn new(file_name: &str) -> AssetsFile {
+//         AssetsFile {
+//             file_name: file_name.to_string(),
+//             data: None,
+//             tmp_data: Arc::new(Mutex::new(None)),
+//         }
+//     }
 
-            let data_clone = self.tmp_data.clone();
+//     pub fn load(&mut self) {
+//         #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
+//         {
 
-            let req = XmlHttpRequest::new();
-            match req.open("GET", &self.file_name) {
-                Ok(_) => (),
-                Err(err) => eprintln!("{:?}", err),
-            };
-            if let Err(err) = req.set_response_type(XhrResponseType::ArrayBuffer) {
-                eprintln!("{:?}", err);
-            }
+//         }
 
-            req.add_event_listener(move |event: ReadyStateChangeEvent| {
-                let req: XmlHttpRequest = js! {return @{event}.target}.try_into().unwrap();
-                if req.ready_state() == XhrReadyState::Done {
-                    if req.status() == 200 {
-                        let array_buffer: ArrayBuffer = req.raw_response().try_into().unwrap();
-                        let contents: Vec<u8> = Vec::from(array_buffer);
-                        if let Ok(mut data) = data_clone.lock() {
-                            *data = Some(contents);
-                        }
-                    }
-                }
-            });
-            match req.send() {
-                Ok(_) => (),
-                Err(err) => println!("{:?}", err),
-            };
-        }
+//         #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
+//         {
+//
+//         }
+//     }
 
-        #[cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))]
-        {
-            use std::fs::File;
-            use std::io::Read;
-            use std::thread;
-            let data_clone = self.tmp_data.clone();
-            let file_name = self.file_name.clone();
-            thread::spawn(move || {
-                let file_name = "./static/".to_owned() + &file_name;
-                match File::open(file_name) {
-                    Ok(mut file) => {
-                        let mut contents = vec![];
-                        match file.read_to_end(&mut contents) {
-                            Ok(_) => {
-                                match data_clone.lock() {
-                                    Ok(mut data) => *data = Some(contents),
-                                    Err(err) => eprintln!("{:?}", err),
-                                };
-                            }
-                            Err(err) => eprintln!("{:?}", err),
-                        };
-                    }
-                    Err(err) => eprintln!("{:?}", err),
-                };
-            });
-        }
-    }
-
-    pub fn data(&mut self) -> Option<&Vec<u8>> {
-        if self.data == None {
-            if let Ok(mut tmp_data) = self.tmp_data.try_lock() {
-                if tmp_data.is_some() {
-                    //移出加载的临时文件数据
-                    self.data = tmp_data.take();
-                }
-            }
-        }
-        self.data.as_ref()
-    }
-}
+//     pub fn data(&mut self) -> Option<&Vec<u8>> {
+//         if self.data == None {
+//             if let Ok(mut tmp_data) = self.tmp_data.try_lock() {
+//                 if tmp_data.is_some() {
+//                     //移出加载的临时文件数据
+//                     self.data = tmp_data.take();
+//                 }
+//             }
+//         }
+//         self.data.as_ref()
+//     }
+// }
 
 //生成指定范围的随即整数
 pub fn rand_int(l: i32, b: i32) -> i32 {

@@ -3,13 +3,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <style>
     body{margin: 0; padding: 0; overflow: hidden;}
-
-    @font-face
-    {
-        font-family: {{font_family}};
-        src: url('{{font_src}}');
-    }
 </style>
 <script>
-    
+    //微信内置浏览器在request_animation_frame中运行以提高更新频率
+    let oldRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = function(a, b){
+        console.log("req");
+        oldRequestAnimationFrame(a, b);
+    };
 </script>

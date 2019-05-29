@@ -1,24 +1,27 @@
 [package]
 name = "mengine"
-version = "0.6.0"
+version = "0.6.5"
 authors = ["planet0104 <planet0104@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 
-[dependencies.image]
-version = "0.21.1"
-default-features = false
-
 [target.'cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))'.dependencies]
-# coffee = { version = "0.2.0", features = ["opengl"] }
-coffee = { git = "https://github.com/hecrj/coffee", features = ["opengl"] }
+winit = { version = "0.19.1", features = ["icon_loading"] }
 rodio = "0.8.1"
 rand = "0.6.5"
+image = "0.21.1"
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3.7"
+direct2d = "0.3.0-alpha1"
+dxgi = "0.3.0-alpha4"
+math2d = "0.2.0-alpha8"
+directwrite = "0.3.0-alpha4"
 
 [target.'cfg(any(target_arch = "asmjs", target_arch = "wasm32"))'.dependencies]
-wasm-bindgen = "*"
+wasm-bindgen = "0.2.45"
 stdweb = "0.4.17"
 askama = "0.8.0"
-base64 = "0.10.1"
+base64 = "0.9.3"
 png = "0.14.1"
