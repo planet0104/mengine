@@ -13,7 +13,7 @@ impl ScrollingBackground {
         self.layers.push(layer);
     }
 
-    pub fn draw(&self, g: &mut Graphics) {
+    pub fn draw(&self, g: &mut impl Graphics) {
         for layer in &self.layers {
             layer.draw(g);
         }
@@ -96,7 +96,7 @@ impl BackgroundLayer {
         }
     }
 
-    pub fn draw(&self, g: &mut Graphics) {
+    pub fn draw(&self, g: &mut impl Graphics) {
         let (x, y) = (0.0, 0.0);
         //仅绘制通过视口看到的图层部分
         if self.viewport.top < 0.0 && self.viewport.left < 0.0 {

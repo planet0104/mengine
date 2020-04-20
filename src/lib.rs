@@ -75,8 +75,13 @@ impl Assets {
 
 pub trait Window {
     fn set_update_rate(&mut self, ups: u64);
-    fn load_assets(&mut self, assets: Vec<(&str, AssetsType)>);
+    /// 从文件加载资源
+    fn load_assets(&mut self, assets: &[(&str, AssetsType)]);
+    /// 加载RGBA图片数据
     fn load_image(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>);
+    /// 加载BGRA图片数据
+    fn load_image_bgra(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>);
+    /// 渲染并加载SVG
     fn load_svg(&mut self, key: &str, svg: String);
 }
 
@@ -138,10 +143,10 @@ pub enum Event {
 }
 
 pub trait State: 'static {
-    fn new(window: &mut Window) -> Self;
-    fn update(&mut self, _window: &mut Window) {}
-    fn event(&mut self, _event: Event, _window: &mut Window) {}
-    fn draw(&mut self, graphics: &mut Graphics, window: &mut Window);
+    fn new(window: &mut impl Window) -> Self;
+    fn update(&mut self, _window: &mut impl Window) {}
+    fn event(&mut self, _event: Event, _window: &mut impl Window) {}
+    fn draw(&mut self, graphics: &mut impl Graphics, window: &mut impl Window);
     ///
     ///
     fn on_assets_load(
@@ -149,7 +154,7 @@ pub trait State: 'static {
         path: &str,
         t: AssetsType,
         assets: std::io::Result<Assets>,
-        window: &mut Window,
+        window: &mut impl Window,
     );
     #[cfg(any(target_arch = "asmjs", target_arch = "wasm32"))]
     fn handle_error(&mut self, error: String) {
@@ -206,7 +211,7 @@ impl SubImage {
         SubImage { image, region }
     }
 
-    pub fn draw(&self, transform: Option<Transform>, g: &mut Graphics, dest: [f64; 4]) {
+    pub fn draw(&self, transform: Option<Transform>, g: &mut impl Graphics, dest: [f64; 4]) {
         g.draw_image(transform, &self.image, Some(self.region), Some(dest));
     }
 }
@@ -304,7 +309,7 @@ impl Animation {
         jump
     }
 
-    pub fn draw(&self, transform: Option<Transform>, g: &mut Graphics, dest: [f64; 4]) {
+    pub fn draw(&self, transform: Option<Transform>, g: &mut impl Graphics, dest: [f64; 4]) {
         let mut current = 0;
         if self.current > 0 {
             current = if self.current == self.frames.len() as i32 {

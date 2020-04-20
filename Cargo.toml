@@ -1,28 +1,28 @@
 [package]
 name = "mengine"
-version = "0.6.6"
+version = "0.6.7"
 authors = ["planet0104 <planet0104@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 
 [target.'cfg(not(any(target_arch = "asmjs", target_arch = "wasm32")))'.dependencies]
-winit = { version = "0.19.1", features = ["icon_loading"] }
-rodio = "0.8.1"
-rand = "0.6.5"
-image = "0.21.1"
-nsvg = "0.5.0"
+winit = { version = "0.19.5", features = ["icon_loading"] }
+rodio = "0.10.0"
+rand = "0.7.2"
+image = "0.22.3"
+nsvg = "0.5.1"
 
 [target.'cfg(windows)'.dependencies]
-winapi = "0.3.7"
+winapi = "0.3.8"
 direct2d = "0.3.0-alpha1"
 dxgi = "0.3.0-alpha4"
 math2d = "0.2.0-alpha8"
 directwrite = "0.3.0-alpha4"
 
 [target.'cfg(any(target_arch = "asmjs", target_arch = "wasm32"))'.dependencies]
-wasm-bindgen = "0.2.45"
-stdweb = "0.4.17"
+wasm-bindgen = "0.2.55"
+stdweb = "0.4.20"
 askama = "0.8.0"
-base64 = "0.9.3"
-png = "0.14.1"
+base64 = "0.11.0"
+png = "0.15.1"

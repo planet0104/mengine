@@ -43,7 +43,7 @@ impl Resource {
 pub struct Sprite {
     id: f64,
     name: String,
-    sprite_ext: Option<Box<SpriteExt>>,
+    sprite_ext: Option<Box<dyn SpriteExt>>,
     resource: Resource,
     position: Rect,
     bounds: Rect,
@@ -250,7 +250,7 @@ impl Sprite {
         }
     }
 
-    pub fn draw(&self, g: &mut Graphics) {
+    pub fn draw(&self, g: &mut impl Graphics) {
         // Draw the sprite if it isn't hidden
         if !self.hidden {
             // Draw the appropriate frame, if necessary

@@ -51,7 +51,7 @@ enum RawAssets {
     Blob(Vec<u8>),
 }
 
-struct D2DWindow {
+pub struct D2DWindow {
     new_size: Option<(f64, f64)>,
     thread_sender: Sender<(String, AssetsType, Result<RawAssets>)>,
     update_delay: Duration,
@@ -61,7 +61,7 @@ impl Window for D2DWindow {
         self.update_delay = Duration::from_micros(1000 * 1000 / ups);
     }
 
-    fn load_assets(&mut self, assets: Vec<(&str, AssetsType)>) {
+    fn load_assets(&mut self, assets: &[(&str, AssetsType)]) {
         let sender = self.thread_sender.clone();
         let assets: Vec<(String, AssetsType)> = assets
             .iter()
@@ -132,6 +132,17 @@ impl Window for D2DWindow {
         ));
     }
 
+    fn load_image_bgra(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>) {
+        let mut buffer = Vec::with_capacity(data.len());
+        for pixel in data.chunks(4){
+            buffer.push(pixel[2]);//r
+            buffer.push(pixel[1]);//g
+            buffer.push(pixel[0]);//b
+            buffer.push(pixel[3]);//a
+        }
+        self.load_image(width, height, key, buffer)
+    }
+
     fn load_svg(&mut self, key: &str, svg: String) {
         let svg = nsvg::parse_str(&svg, nsvg::Units::Pixel, 96.0).unwrap();
         // Rasterize the loaded SVG and return dimensions and a RGBA buffer
@@ -146,7 +157,7 @@ impl Window for D2DWindow {
     }
 }
 
-struct D2DGraphics {
+pub struct D2DGraphics {
     target: HwndRenderTarget,
     text_formats: HashMap<u32, TextFormat>,
     solid_bursh: HashMap<[u8; 4], SolidColorBrush>,

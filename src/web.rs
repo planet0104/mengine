@@ -1,5 +1,4 @@
 use askama::Template;
-use png::HasParameters;
 use std::io::Result;
 use std::path::Path;
 use std::rc::Rc;
@@ -53,7 +52,7 @@ impl Image {
     }
 }
 
-struct BrowserWindow {
+pub struct BrowserWindow {
     timer: AnimationTimer,
     ups_count: u64,
     fps_count: u64,
@@ -67,7 +66,7 @@ impl Window for BrowserWindow {
         self.timer.set_fps(ups as f64);
     }
 
-    fn load_assets(&mut self, assets: Vec<(&str, AssetsType)>) {
+    fn load_assets(&mut self, assets: &[(&str, AssetsType)]) {
         let assets: Vec<(String, AssetsType)> = assets
             .iter()
             .map(|(path, tp)| (path.to_string(), *tp))
@@ -155,11 +154,22 @@ impl Window for BrowserWindow {
         }
     }
 
+    fn load_image_bgra(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>) {
+        let mut buffer = Vec::with_capacity(data.len());
+        for pixel in data.chunks(4){
+            buffer.push(pixel[2]);//r
+            buffer.push(pixel[1]);//g
+            buffer.push(pixel[0]);//b
+            buffer.push(pixel[3]);//a
+        }
+        self.load_image(width, height, key, buffer)
+    }
+
     fn load_image(&mut self, width: u32, height: u32, key: &str, data: Vec<u8>) {
         let mut png_data: Vec<u8> = vec![];
         {
             let mut encoder = png::Encoder::new(&mut png_data, width, height);
-            encoder.set(png::ColorType::RGBA);
+            encoder.set_color(png::ColorType::RGBA);
             let mut writer = encoder.write_header().unwrap();
             writer.write_image_data(&data).unwrap();
         }
@@ -188,7 +198,7 @@ impl Window for BrowserWindow {
     }
 }
 
-struct BrowserGraphics {
+pub struct BrowserGraphics {
     context: CanvasRenderingContext2d,
 }
 
